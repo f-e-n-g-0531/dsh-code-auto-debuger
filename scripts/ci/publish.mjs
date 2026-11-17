@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { readTar } from "./release-check.mjs";
 import { gunzipSync } from "node:zlib";
+import { verifyPublicPackage } from "./npm-registry.mjs";
 if (
   process.env.GITHUB_EVENT_NAME !== "push" ||
   !process.env.GITHUB_REF?.startsWith("refs/tags/v")
@@ -65,6 +66,7 @@ if (existing.ok) {
   )
     throw Error("Existing registry version differs; never overwrite");
   console.log("Existing exact npm artifact verified; publication not repeated");
+  await verifyPublicPackage(pkg, bytes);
   process.exit(0);
 }
 if (existing.status !== 404)
@@ -80,6 +82,7 @@ const args = [
   "--tag",
   "latest",
   "--ignore-scripts",
+  "--registry=https://registry.npmjs.org/",
 ];
 const r = npm
   ? spawnSync(process.execPath, [npm, ...args], { stdio: "inherit" })
@@ -87,24 +90,4 @@ const r = npm
 if (r.error) throw r.error;
 if (r.status !== 0)
   throw Error("npm publication failed; inspect registry before retrying");
-let published;
-for (let attempt = 0; attempt < 8; attempt++) {
-  const response = await fetch(endpoint);
-  if (response.ok) {
-    published = await response.json();
-    break;
-  }
-  if (response.status !== 404)
-    throw Error("Registry verification failed: " + response.status);
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-}
-if (!published)
-  throw Error(
-    "Published registry version not yet observable; rerun only after inspecting registry",
-  );
-if (
-  published.license !== "MIT" ||
-  published.dist?.shasum !== createHash("sha1").update(bytes).digest("hex")
-)
-  throw Error("Registry package differs from verified artifact");
-console.log("Verified npm latest publication " + pkg.name + "@" + pkg.version);
+await verifyPublicPackage(pkg, bytes);

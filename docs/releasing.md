@@ -26,7 +26,7 @@ npm run test:install
 2. 提交并推送代码，创建与包版本一致的标签，例如 `v0.1.2`，再推送标签。普通分支推送和 PR 不触发 CI。
 3. 发布工作流先运行完整检查、COM 故障注入、协议测试、归档校验和隔离安装，将同一份包保存为构建产物。
 4. 仅标签触发的正式发布阶段使用 secret `NPM_AUTOMATION_TOKEN`，将该包发布到 npm `latest`；随后创建 GitHub 正式 Release，附安装包与 SHA256 清单。
-5. 核对 Actions 状态、npm 注册表版本和 GitHub Release 下载。失败时先检查已发生的外部状态，不盲目重发发布。
+5. 核对 Actions 状态、npm 注册表版本和 GitHub Release 下载。公开核验最多等待约 10 分钟，实际下载 npm 包逐字节比对并确认 latest；CLI 返回成功不等于版本已公开。失败时保留原 CI 包，先运行手动只读诊断工作流检查 staged 列表和公开注册表，不盲目重发发布。
 
 手动运行工作流只构建候选，不发布。GitHub 写权限仅授予正式发布 job；测试和打包 job 保持只读权限。仓库必须配置可发布该 npm 包的 automation token；本地 npm 登录不是 CI 发布前置条件。
 
