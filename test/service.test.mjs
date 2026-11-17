@@ -237,7 +237,7 @@ test("host registers tools and RPC with owner scope; dispose is registered", asy
     on: (event, fn) => events.push(fn),
   };
   apply(ctx);
-  assert.equal(defs.length, 12);
+  assert.equal(defs.length, 16);
   assert(defs.every((d) => d.output?.render));
   const caps = await defs[0].execute({}, { agent: { session: { id: "a" } } });
   assert.equal(caps.protocol, 1);

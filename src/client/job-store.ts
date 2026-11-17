@@ -15,7 +15,7 @@ const empty: Saved = Object.freeze({
 export const sessionKey = (session?: { id: string; cwd?: string }) =>
   JSON.stringify([session?.id, session?.cwd ?? ""]);
 
-// Immutable snapshots and notifications let late execute responses reach replacement panels.
+// Immutable snapshots and notifications keep recovered jobs visible across panel remounts.
 export function createJobStore() {
   const values = new Map<string, Saved>();
   const listeners = new Set<() => void>();
@@ -38,7 +38,7 @@ export function createJobStore() {
     },
     set(key: string, value: Saved) {
       values.set(key, value);
-      // Only the correlation identity is persisted, never preview contents or session secrets.
+      // Only the correlation identity is persisted, never investigation contents or session secrets.
       try {
         if (value.requestId)
           globalThis.sessionStorage?.setItem(storageKey(key), value.requestId);

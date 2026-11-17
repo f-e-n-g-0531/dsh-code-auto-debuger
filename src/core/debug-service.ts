@@ -21,6 +21,7 @@ type Connection = {
   busy: boolean;
   uncertain?: boolean;
   owner: Owner;
+  dynamic?: boolean;
 };
 type Preview = {
   owner: Owner;
@@ -29,12 +30,38 @@ type Preview = {
   debugState: any;
   plan: Awaited<ReturnType<typeof validatePlan>>;
   expiresAt: number;
+  investigation?: Investigation;
+};
+type DynamicJob = Job & {
+  investigationId?: string;
+  actionResult?: unknown;
+  investigation?: any;
+};
+type Investigation = {
+  record: DynamicJob;
+  connection: Connection;
+  revoked: boolean;
+  controller?: AbortController;
+  done?: Promise<DynamicJob>;
+  requests: Map<string, { signature: string; result: Promise<string> }>;
 };
 type Active = { record: Job; controller: AbortController; done: Promise<void> };
 export class DebugService {
   private connections = new Map<string, Connection>();
   private previews = new Map<string, Preview>();
   private active = new Map<string, Active>();
+  private investigations = new Map<string, Investigation>();
+  private currentInvestigations = new Map<string, string>();
+  private sessionBudgets = new Map<
+    string,
+    {
+      maxCalls: number;
+      timeoutMs: number;
+      expiresAt: number;
+      actionsUsed: number;
+    }
+  >();
+  private epochs = new Map<string, number>();
   private closed = false;
   private backendId = randomUUID();
   private completed = new Map<string, Job>();
@@ -48,12 +75,14 @@ export class DebugService {
     private store: JobStore,
     private factory: () => Bridge = () => new BridgeClient(),
     private authorize: (owner: Owner) => Promise<void> = async () => {},
+    private budgetOverride?: { maxCalls: number },
   ) {}
   capabilities() {
     return {
-      version: "0.1.3",
+      version: "0.1.4",
       backendId: this.backendId,
       protocol: 1,
+      features: { dynamicDebug: true, observerPanel: true, legacyBatch: true },
       available: process.platform === "win32",
       verified: false,
       limitations: [
@@ -81,6 +110,488 @@ export class DebugService {
       return await work();
     } finally {
       c.busy = false;
+    }
+  }
+  private view(i: Investigation) {
+    const v = structuredClone(i.record.investigation);
+    v.authorized =
+      !i.revoked && !this.closed && Date.now() < v.budget.expiresAt;
+    if (!v.authorized && v.status === "active") v.status = "expired";
+    return v;
+  }
+  private assertInvestigation(i: Investigation, owner: Owner) {
+    if (!same(i.record.owner, owner))
+      fail("FOREIGN_INVESTIGATION", "Foreign investigation/workspace");
+    if (this.closed || i.revoked)
+      fail("AUTHORIZATION_REVOKED", "Investigation authorization revoked");
+    if (this.connection(owner) !== i.connection)
+      fail("TARGET_CHANGED", "Connection changed");
+    if (i.connection.uncertain)
+      fail("RECONNECT_REQUIRED", "Previous outcome uncertain");
+    const b = this.sessionBudgets.get(owner.sessionId);
+    if (b && this.budgetOverride)
+      b.maxCalls = this.budgetOverride.maxCalls;
+    if (
+      !b ||
+      Date.now() >= i.record.investigation.budget.expiresAt ||
+      Date.now() >= b.expiresAt ||
+      b.actionsUsed >= b.maxCalls
+    )
+      fail("BUDGET_EXCEEDED", "Session automation budget exhausted");
+  }
+  async begin(owner: Owner, raw: unknown, signal?: AbortSignal) {
+    const p = object(structuredClone(raw), [
+      "goal",
+      "confirmed",
+      "allowEvaluation",
+      "allowTerminate",
+      "allowAttach",
+      "processId",
+    ]);
+    if (p.confirmed !== true)
+      fail(
+        "CONFIRMATION_REQUIRED",
+        "confirmed asserts explicit user authorization, not proof",
+      );
+    if (typeof p.goal !== "string" || !p.goal.trim() || p.goal.length > 4096)
+      fail("INVALID_INPUT", "Investigation goal required");
+    for (const n of ["allowEvaluation", "allowTerminate", "allowAttach"])
+      if (p[n] !== undefined && typeof p[n] !== "boolean")
+        fail("INVALID_INPUT", "Risk permissions must be booleans");
+    if (
+      p.allowAttach === true
+        ? !Number.isSafeInteger(p.processId) || p.processId <= 0
+        : p.processId !== undefined
+    )
+      fail("INVALID_INPUT", "Attach requires a fixed processId");
+    const c = this.connection(owner),
+      epoch = this.epochs.get(owner.sessionId) ?? 0;
+    await this.authorize(owner);
+    return this.exclusive(c, async () => {
+      if (
+        [...this.connections.values()].some(
+          (x) => x !== c && x.owner.sessionId === owner.sessionId && x.busy,
+        )
+      )
+        fail("BUSY", "Session task active");
+      if (c.uncertain) fail("RECONNECT_REQUIRED", "Previous outcome uncertain");
+      if (
+        [...this.investigations.values()].some(
+          (i) =>
+            i.record.owner.sessionId === owner.sessionId &&
+            this.view(i).authorized,
+        )
+      )
+        fail(
+          "INVESTIGATION_ACTIVE",
+          "Take over before beginning another investigation",
+        );
+      this.pruneInvestigations();
+      if (this.investigations.size >= 128)
+        fail("CAPACITY", "Investigation retention capacity reached");
+      const observation = await this.verified(c, signal);
+      let attachTarget;
+      if (p.allowAttach === true) {
+        await this.authorize(owner);
+        const process = await c.bridge.request(
+          "processDescribe",
+          { processId: p.processId },
+          signal,
+        );
+        if (
+          typeof process.startTime !== "string" ||
+          !process.startTime ||
+          (process.processId !== undefined && process.processId !== p.processId)
+        )
+          fail("TARGET_CHANGED", "Attach identity unavailable");
+        attachTarget = { processId: p.processId, startTime: process.startTime };
+      }
+      signal?.throwIfAborted();
+      if (this.closed || epoch !== (this.epochs.get(owner.sessionId) ?? 0))
+        fail("AUTHORIZATION_REVOKED", "Authorization revoked while beginning");
+      let budget = this.sessionBudgets.get(owner.sessionId);
+      if (!budget || Date.now() >= budget.expiresAt) {
+        budget = {
+          maxCalls: this.budgetOverride?.maxCalls ?? 64,
+          timeoutMs: 600000,
+          expiresAt: Date.now() + 600000,
+          actionsUsed: 0,
+        };
+        this.sessionBudgets.set(owner.sessionId, budget);
+      }
+      if (budget.actionsUsed >= budget.maxCalls)
+        fail("BUDGET_EXCEEDED", "Session action budget exhausted");
+      const id = randomUUID(),
+        now = new Date().toISOString();
+      const record: DynamicJob = {
+        jobId: id,
+        owner: structuredClone(owner),
+        target: structuredClone(c.target),
+        status: "succeeded",
+        steps: [],
+        results: [],
+        createdAt: now,
+        updatedAt: now,
+        externalState: "last_observed_not_stopped",
+        investigationId: id,
+        investigation: {
+          investigationId: id,
+          status: "active",
+          goal: p.goal.trim(),
+          target: structuredClone(c.target),
+          permissions: {
+            allowEvaluation: p.allowEvaluation === true,
+            allowTerminate: p.allowTerminate === true,
+            allowAttach: p.allowAttach === true,
+          },
+          attachTarget,
+          budget: { ...budget },
+          actionsUsed: budget.actionsUsed,
+          history: [],
+          observation,
+          backendId: this.backendId,
+          authorizationAssertion:
+            "confirmed is caller assertion of explicit user authorization, not independent proof",
+        },
+      };
+      const i: Investigation = {
+        record,
+        connection: c,
+        revoked: false,
+        requests: new Map(),
+      };
+      this.investigations.set(id, i);
+      this.currentInvestigations.set(owner.sessionId, id);
+      c.dynamic = true;
+      for (const [id, preview] of this.previews)
+        if (preview.owner.sessionId === owner.sessionId)
+          this.previews.delete(id);
+      try {
+        await this.persist(c, record);
+      } catch (e) {
+        i.revoked = true;
+        throw e;
+      }
+      if (this.closed || epoch !== (this.epochs.get(owner.sessionId) ?? 0)) {
+        i.revoked = true;
+        fail("AUTHORIZATION_REVOKED", "Authorization revoked while beginning");
+      }
+      return this.view(i);
+    });
+  }
+  async investigation(owner: Owner, raw: unknown = {}) {
+    const p = object(raw, ["investigationId"]);
+    const id =
+      p.investigationId ?? this.currentInvestigations.get(owner.sessionId);
+    if (id === undefined) {
+      const latest = (await this.store.list(owner))
+        .filter((j) => (j as DynamicJob).investigation?.investigationId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+      return latest
+        ? {
+            ...structuredClone((latest as DynamicJob).investigation),
+            status: "revoked",
+            authorized: false,
+          }
+        : { status: "idle", authorized: false };
+    }
+    const i = this.investigations.get(id);
+    if (i) {
+      if (i.record.owner.sessionId !== owner.sessionId)
+        fail("FOREIGN_INVESTIGATION", "Foreign investigation");
+      return this.view(i);
+    }
+    const record = (await this.store.read(id, owner)) as DynamicJob;
+    if (!record.investigation || record.investigationId !== id)
+      fail("INVALID_INPUT", "Not an investigation");
+    return {
+      ...structuredClone(record.investigation),
+      status: "revoked",
+      authorized: false,
+    };
+  }
+  async takeover(owner: Owner, raw: unknown = {}) {
+    const p = object(raw, ["investigationId"]);
+    if (p.investigationId !== undefined) {
+      const i = this.investigations.get(p.investigationId);
+      if (i && i.record.owner.sessionId !== owner.sessionId)
+        fail("FOREIGN_INVESTIGATION", "Foreign investigation");
+      if (!i) {
+        this.revoke(owner.sessionId);
+        return this.investigation(owner, p);
+      }
+    }
+    this.revoke(owner.sessionId);
+    await Promise.allSettled(
+      [...this.investigations.values()]
+        .filter((i) => i.record.owner.sessionId === owner.sessionId)
+        .map((i) => i.done),
+    );
+    this.pruneInvestigations();
+    return this.investigation(owner, p);
+  }
+  private inactiveInvestigation(i: Investigation) {
+    return (
+      !this.view(i).authorized &&
+      !i.connection.busy &&
+      !i.controller &&
+      !i.done
+    );
+  }
+  private pruneInvestigations() {
+    const inactive = [...this.investigations.entries()].filter(([, i]) =>
+      this.inactiveInvestigation(i),
+    );
+    while (this.investigations.size >= 128 && inactive.length) {
+      const [id, i] = inactive.shift()!;
+      this.investigations.delete(id);
+      if (this.currentInvestigations.get(i.record.owner.sessionId) === id)
+        this.currentInvestigations.delete(i.record.owner.sessionId);
+    }
+  }
+  private revoke(sessionId: string) {
+    this.epochs.set(sessionId, (this.epochs.get(sessionId) ?? 0) + 1);
+    for (const i of this.investigations.values())
+      if (i.record.owner.sessionId === sessionId) {
+        i.revoked = true;
+        i.record.investigation.status = "revoked";
+        i.controller?.abort(
+          new Error("Automation revoked; debuggee not stopped"),
+        );
+      }
+    for (const [id, p] of this.previews)
+      if (p.owner.sessionId === sessionId) this.previews.delete(id);
+    for (const a of this.active.values())
+      if (a.record.owner.sessionId === sessionId)
+        a.controller.abort(
+          new Error("Automation revoked; debuggee not stopped"),
+        );
+  }
+  async perform(
+    owner: Owner,
+    raw: unknown,
+    signal?: AbortSignal,
+  ): Promise<DynamicJob> {
+    const p = object(structuredClone(raw), [
+      "investigationId",
+      "requestId",
+      "action",
+      "params",
+    ]);
+    if (
+      typeof p.requestId !== "string" ||
+      !/^[a-zA-Z0-9_-]{1,128}$/.test(p.requestId)
+    )
+      fail("INVALID_INPUT", "requestId required");
+    const i = this.investigations.get(p.investigationId);
+    if (!i)
+      fail("AUTHORIZATION_REVOKED", "Investigation not live on this backend");
+    if (!same(i.record.owner, owner))
+      fail("FOREIGN_INVESTIGATION", "Foreign investigation/workspace");
+    const signature = JSON.stringify([p.action, p.params ?? {}]),
+      prior = i.requests.get(p.requestId);
+    if (prior) {
+      if (prior.signature !== signature)
+        fail("REQUEST_CONFLICT", "requestId parameters changed");
+      const jobId = await prior.result;
+      if (!jobId)
+        fail("REQUEST_FAILED", "Original request failed; no automatic replay");
+      return this.jobStatus(owner, { jobId });
+    }
+    this.assertInvestigation(i, owner);
+    await this.authorize(owner);
+    const permissions = i.record.investigation.permissions,
+      budget = this.sessionBudgets.get(owner.sessionId)!,
+      remaining = Math.min(300000, budget.expiresAt - Date.now());
+    if (remaining < 100) fail("BUDGET_EXCEEDED", "Time budget exhausted");
+    await validatePlan(
+      {
+        steps: [{ action: p.action, params: p.params ?? {} }],
+        maxSteps: 1,
+        timeoutMs: remaining,
+        allowEvaluation: permissions.allowEvaluation,
+        allowTerminate: permissions.allowTerminate,
+      },
+      owner.cwd,
+    );
+    this.idle(i.connection);
+    if (i.requests.size >= 1024)
+      fail(
+        "CAPACITY",
+        "Request retention capacity reached; no replay permitted",
+      );
+    let accept: (jobId: string) => void;
+    const accepted = new Promise<string>((resolve) => {
+      accept = resolve;
+    });
+    i.requests.set(p.requestId, { signature, result: accepted });
+    const work = this.performNew(i, owner, p, signal);
+    i.done = work;
+    void work.then(
+      (record) => {
+        if (record.status === "queued" && record.error) {
+          if (i.requests.get(p.requestId)?.result === accepted)
+            i.requests.delete(p.requestId);
+          accept!("");
+          return;
+        }
+        accept!(record.jobId);
+      },
+      () => {
+        // A request rejected before a job exists must not permanently occupy its ID.
+        if (i.requests.get(p.requestId)?.result === accepted)
+          i.requests.delete(p.requestId);
+        accept!("");
+      },
+    );
+    return work;
+  }
+  private async performNew(
+    i: Investigation,
+    owner: Owner,
+    p: Record<string, any>,
+    signal?: AbortSignal,
+  ): Promise<DynamicJob> {
+    const c = i.connection;
+    c.busy = true;
+    const controller = new AbortController();
+    i.controller = controller;
+    const abort = () => controller.abort(signal?.reason);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+    let record: DynamicJob | undefined;
+    try {
+      const permissions = i.record.investigation.permissions,
+        b = this.sessionBudgets.get(owner.sessionId)!;
+      const remaining = Math.min(300000, b.expiresAt - Date.now());
+      if (remaining < 100) fail("BUDGET_EXCEEDED", "Time budget exhausted");
+      const plan = await validatePlan(
+        {
+          steps: [{ action: p.action, params: p.params ?? {} }],
+          maxSteps: 1,
+          timeoutMs: remaining,
+          allowEvaluation: permissions.allowEvaluation,
+          allowTerminate: permissions.allowTerminate,
+        },
+        owner.cwd,
+      );
+      if (p.action === "attach") {
+        const attach = i.record.investigation.attachTarget;
+        if (
+          !permissions.allowAttach ||
+          !attach ||
+          plan.steps[0].params.processId !== attach.processId
+        )
+          fail(
+            "RISK_NOT_AUTHORIZED",
+            "Attach requires process identity fixed at begin",
+          );
+        plan.steps[0].params.expectedStartTime = attach.startTime;
+      }
+      this.assertInvestigation(i, owner);
+      controller.signal.throwIfAborted();
+      while (this.active.size + this.completed.size >= 128) {
+        const evict = [...this.completed].find(
+          ([, j]) => j.persistence?.status !== "failed",
+        );
+        if (!evict) fail("CAPACITY", "Retained task capacity reached");
+        this.completed.delete(evict[0]);
+      }
+      b.actionsUsed++;
+      i.record.investigation.budget = { ...b };
+      i.record.investigation.actionsUsed = b.actionsUsed;
+      const now = new Date().toISOString();
+      record = {
+        jobId: randomUUID(),
+        owner: structuredClone(owner),
+        target: structuredClone(c.target),
+        status: "queued",
+        steps: plan.steps,
+        results: [],
+        createdAt: now,
+        updatedAt: now,
+        externalState: "unconfirmed",
+        requestId: p.requestId,
+        investigationId: i.record.jobId,
+      };
+      i.record.investigation.lastJobId = record.jobId;
+      const history = {
+        jobId: record.jobId,
+        action: p.action,
+        status: "queued",
+        observedAt: now,
+      };
+      i.record.investigation.history.push(history);
+      await this.persist(c, i.record);
+      controller.signal.throwIfAborted();
+      const preview: Preview = {
+        owner,
+        connection: c,
+        target: c.target,
+        debugState: {},
+        plan,
+        expiresAt: b.expiresAt,
+        investigation: i,
+      };
+      const active: Active = { record, controller, done: Promise.resolve() };
+      this.active.set(record.jobId, active);
+      active.done = this.run(c, preview, active);
+      await active.done;
+      history.status = record.status;
+      history.observedAt = record.updatedAt;
+      record.actionResult = record.results[0]?.value;
+      i.record.investigation.lastAction = p.action;
+      i.record.investigation.lastEvidence = record.results[0];
+      if (c.uncertain) {
+        i.revoked = true;
+        i.record.investigation.status = "uncertain";
+      }
+      i.record.updatedAt = new Date().toISOString();
+      await this.persist(c, record);
+      await this.persist(c, i.record);
+      return structuredClone(record);
+    } catch (e) {
+      if (c.uncertain) {
+        i.revoked = true;
+        i.record.investigation.status = "uncertain";
+      }
+      if (record) {
+        if (c.uncertain && record.persistence?.status !== "failed") {
+          const notStarted = record.status === "queued";
+          this.persistenceFailure(c, record, e);
+          if (notStarted) record.outcome = "not_started";
+        } else if (record.status === "queued") {
+          record.status = controller.signal.aborted ? "cancelled" : "failed";
+          record.error = {
+            code: controller.signal.aborted ? "CANCELLED" : "DEBUG_FAILED",
+            message: String((e as Error).message ?? e).slice(0, 2048),
+          };
+          record.updatedAt = new Date().toISOString();
+          try {
+            await this.persist(c, record);
+          } catch {
+            /* In-memory failure evidence retained. */
+          }
+        }
+        const history = i.record.investigation.history.find(
+          (h: any) => h.jobId === record!.jobId,
+        );
+        if (history) {
+          history.status = record.status;
+          history.observedAt = record.updatedAt;
+        }
+        return structuredClone(record);
+      }
+      throw e;
+    } finally {
+      c.busy = false;
+      i.controller = undefined;
+      i.done = undefined;
+      signal?.removeEventListener("abort", abort);
+      if (record) {
+        this.active.delete(record.jobId);
+        this.completed.set(record.jobId, record);
+      }
     }
   }
   async discover(signal?: AbortSignal) {
@@ -210,6 +721,11 @@ export class DebugService {
   }
   async preview(owner: Owner, raw: unknown, signal?: AbortSignal) {
     const c = this.connection(owner);
+    if (c.dynamic)
+      fail(
+        "DYNAMIC_SESSION",
+        "Use perform; legacy plans cannot bypass investigation permissions",
+      );
     if (c.uncertain)
       fail(
         "RECONNECT_REQUIRED",
@@ -270,6 +786,8 @@ export class DebugService {
     signal?: AbortSignal,
     wait = true,
   ): Promise<Job> {
+    if (this.connections.get(key(owner))?.dynamic)
+      fail("DYNAMIC_SESSION", "Legacy execute is isolated from investigations");
     const p = object(raw, ["previewId", "confirmed", "requestId"]);
     if (p.requestId === undefined)
       return this.executeNew(owner, p, signal, wait);
@@ -400,16 +918,30 @@ export class DebugService {
     const r = a.record;
     const timer = setTimeout(
       () => a.controller.abort(new Error("Task budget exceeded")),
-      p.plan.timeoutMs,
+      p.investigation
+        ? Math.max(1, Math.min(p.plan.timeoutMs, p.expiresAt - Date.now()))
+        : p.plan.timeoutMs,
     );
     const signal = a.controller.signal;
     try {
       await this.persist(c, r);
       signal.throwIfAborted();
       const current = await this.verified(c, signal);
+      if (p.investigation) {
+        const view = p.investigation.record.investigation;
+        const expected = view.observation?.debuggees ?? [];
+        const launching = view.lastAction === "launch" && expected.length === 0;
+        if (!launching && !same(current.debuggees ?? [], expected))
+          fail(
+            "TARGET_CHANGED",
+            "Debuggee identity changed since last authorized observation",
+          );
+        view.observation = structuredClone(current);
+      }
       if (
-        current.state !== p.debugState.state ||
-        !same(current.debuggees ?? [], p.debugState.debuggees ?? [])
+        !p.investigation &&
+        (current.state !== p.debugState.state ||
+          !same(current.debuggees ?? [], p.debugState.debuggees ?? []))
       )
         fail(
           "TARGET_CHANGED",
@@ -433,6 +965,23 @@ export class DebugService {
         if (s.action === "breakpointAdd")
           await canonicalInside(r.owner.cwd, s.params.file as string);
         await this.authorize(r.owner);
+        if (
+          p.investigation &&
+          (p.investigation.revoked || this.closed || Date.now() >= p.expiresAt)
+        )
+          fail(
+            "AUTHORIZATION_REVOKED",
+            "Investigation authorization expired or revoked",
+          );
+        if (p.investigation && s.action === "attach") {
+          const process = await c.bridge.request(
+            "processDescribe",
+            { processId: s.params.processId },
+            signal,
+          );
+          if (process.startTime !== s.params.expectedStartTime)
+            fail("TARGET_CHANGED", "Attach PID was reused");
+        }
         signal.throwIfAborted();
         inFlightMutation = mutating.has(s.action);
         let value: any;
@@ -459,6 +1008,9 @@ export class DebugService {
         if (["launch", "attach", "detach", "terminate"].includes(s.action)) {
           const after = await this.verified(c, signal);
           expectedDebuggees = after.debuggees ?? [];
+          if (p.investigation)
+            p.investigation.record.investigation.observation =
+              structuredClone(after);
           awaitingLaunch = s.action === "launch";
         }
         inFlightMutation = false;
@@ -633,6 +1185,16 @@ export class DebugService {
       return { disconnected: true, debuggeeStopped: false };
     }
     const c = this.connection(owner);
+    this.revoke(owner.sessionId);
+    const pending = [...this.active.values()].filter(
+      (a) => a.record.owner.sessionId === owner.sessionId,
+    );
+    await Promise.allSettled([
+      ...pending.map((a) => a.done),
+      ...[...this.investigations.values()]
+        .filter((i) => i.record.owner.sessionId === owner.sessionId)
+        .map((i) => i.done),
+    ]);
     return this.exclusive(c, async () => {
       try {
         await c.bridge.close();
@@ -647,6 +1209,8 @@ export class DebugService {
   }
   async dispose() {
     this.closed = true;
+    for (const i of this.investigations.values())
+      this.revoke(i.record.owner.sessionId);
     for (const a of this.active.values())
       a.controller.abort(new Error("Plugin disposed"));
     await Promise.allSettled(
@@ -655,6 +1219,9 @@ export class DebugService {
     await Promise.allSettled([...this.transient.values()]);
     await Promise.allSettled([...this.pendingConnections.values()]);
     await Promise.allSettled([...this.active.values()].map((a) => a.done));
+    await Promise.allSettled(
+      [...this.investigations.values()].map((i) => i.done),
+    );
     for (const c of this.connections.values()) {
       await c.bridge.close();
       targetLocks.delete(c.target.instanceId);

@@ -1,6 +1,6 @@
 {
   "name": "@feng0531/dsh-code-auto-debuger",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Bounded external Visual Studio debugging tools for DSH; no VSIX",
   "type": "module",
   "main": "./dist/plugin.js",

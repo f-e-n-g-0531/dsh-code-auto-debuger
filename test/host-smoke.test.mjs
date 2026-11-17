@@ -118,8 +118,8 @@ test("host RPC contract matches browser flat payload and enforces session owners
 
 test("host tool calls derive owner from execution context, never model arguments", async (t) => {
   const x = await fixture(t);
-  assert.equal(x.definitions.length, 12);
-  assert.equal(new Set(x.definitions.map((d) => d.name)).size, 12);
+  assert.equal(x.definitions.length, 16);
+  assert.equal(new Set(x.definitions.map((d) => d.name)).size, 16);
   const capabilities = x.definitions.find(
     (d) => d.name === "auto_debug_capabilities",
   );
@@ -148,7 +148,7 @@ test("host tool calls derive owner from execution context, never model arguments
 });
 
 test(
-  "real DSH SDK registry accepts all outputs and projects twelve schemas",
+  "real DSH SDK registry accepts all outputs and projects sixteen schemas",
   {},
   async (t) => {
     t.diagnostic("DSH SDK tools: " + sdkPaths.tools);
@@ -157,9 +157,9 @@ test(
     const registry = new sdk.ToolsService(ctx);
     const x = await fixture(t, registry);
     const definitions = registry.definitions();
-    assert.equal(definitions.length, 12);
+    assert.equal(definitions.length, 16);
     const schemas = registry.schemas();
-    assert.equal(schemas.length, 12);
+    assert.equal(schemas.length, 16);
     assert(
       schemas.every(
         (schema) =>
