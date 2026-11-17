@@ -12,12 +12,10 @@
 
 ## 安装
 
-将安装包安装到 **DSH 使用的插件依赖目录**，不要装进要调试的业务工程。正式安装包可从 [v0.1.2 Release](https://github.com/f-e-n-g-0531/dsh-code-auto-debuger/releases/tag/v0.1.2) 下载，再运行 `npm install --save-exact <下载的 tgz 路径>`。
-
-以下命令仅在 npm 注册表完成该版本处理、可以查询到 `0.1.2` 后使用；若返回 404，请先使用 Release 安装包，不要改装占位版本：
+将固定版本包安装到 **DSH 使用的插件依赖目录**，不要装进要调试的业务工程：
 
 ```powershell
-npm install --save-exact @feng0531/dsh-code-auto-debuger@0.1.2
+npm install --save-exact @feng0531/dsh-code-auto-debuger@0.1.3
 ```
 
 也可以安装 [GitHub Releases](https://github.com/f-e-n-g-0531/dsh-code-auto-debuger/releases) 中的 `.tgz` 包。安装后，在 DSH 的 Cordis 插件列表中加入以下条目；保留原有配置，不要覆盖整个文件：

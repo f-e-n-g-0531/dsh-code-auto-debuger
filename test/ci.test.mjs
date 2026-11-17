@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 test("package exposes built DSH entries and candidate-only scripts", async () => {
   const p = JSON.parse(await readFile("package.json", "utf8"));
-  assert.equal(p.version, "0.1.2");
+  assert.equal(p.version, "0.1.3");
   assert.equal(p.exports["."], "./dist/plugin.js");
   assert.equal(p.dsh.bundle.patch, "./cordis.patch.yml");
   assert(!p.scripts.publish);

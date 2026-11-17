@@ -51,7 +51,7 @@ export class DebugService {
   ) {}
   capabilities() {
     return {
-      version: "0.1.2",
+      version: "0.1.3",
       backendId: this.backendId,
       protocol: 1,
       available: process.platform === "win32",

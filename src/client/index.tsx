@@ -141,14 +141,14 @@ export function Panel({
   async function handshake() {
     if (!session?.id) throw new Error("请先选择 DSH 会话。");
     const value = await rpc("capabilities", session.id);
-    if (value?.version !== "0.1.2" || value?.protocol !== 1) {
+    if (value?.version !== "0.1.3" || value?.protocol !== 1) {
       if (mounted.current) {
         setCapabilities(null);
         setStatus(null);
         invalidate();
       }
       throw new Error(
-        "前后端协议不匹配（需要 version 0.1.2 / protocol 1），已禁止连接与执行；请更新并重新读取能力",
+        "前后端协议不匹配（需要 version 0.1.3 / protocol 1），已禁止连接与执行；请更新并重新读取能力",
       );
     }
     if (mounted.current) setCapabilities(value);
