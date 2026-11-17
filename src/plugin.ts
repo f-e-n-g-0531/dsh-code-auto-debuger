@@ -6,7 +6,7 @@ import { JobStore, projectedPath } from "./jobs/store.js";
 import { object, fail, type Owner } from "./protocol/types.js";
 export { DebugService, JobStore };
 export const name = "dsh-code-auto-debuger";
-export const inject = ["tools", "connection", "sessions", "sessionPersistence"];
+export const inject = ["tools", "connection", "webServer", "sessions", "sessionPersistence"];
 const actions = [
   "capabilities",
   "discover",
