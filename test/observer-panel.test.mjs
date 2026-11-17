@@ -53,7 +53,7 @@ function backend(overrides = {}) {
     if (overrides[action]) return overrides[action](args, signal);
     return {
       capabilities: {
-        version: "0.1.4",
+        version: "0.1.5",
         protocol: 1,
         features: { dynamicDebug: true },
       },
@@ -144,7 +144,7 @@ test("VS discovery does not connect until the selected instance is explicitly co
 test("capability version and dynamic feature gates reject stale backends before connect", async () => {
   for (const caps of [
     { version: "0.1.2", protocol: 1, features: { dynamicDebug: true } },
-    { version: "0.1.4", protocol: 1 },
+    { version: "0.1.5", protocol: 1 },
   ]) {
     const b = backend({ capabilities: () => caps }),
       tree = await mount(b.rpc);

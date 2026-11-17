@@ -1,4 +1,6 @@
 {
-  "name": "DSH 自动调试",
-  "description": "通过外部桥接执行有预算的 Visual Studio 调试计划；不是 VSIX。"
+  "meta": {
+    "title": "张良 / Zhang Liang",
+    "description": "让当前对话中的 AI 结合源码和 Visual Studio 调试证据定位问题；不是 VSIX。"
+  }
 }

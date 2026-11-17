@@ -20,7 +20,7 @@ npm ci installs development dependencies in the checkout; it is not production p
 
 ## Dynamic AI workflow acceptance (not yet proven)
 
-Version 0.1.4 contains the dynamic workflow. Existing C++ fixture results and legacy preview/execute smoke tests do not prove the new conversation-driven workflow or GUI. Record the following separately before claiming acceptance:
+Version 0.1.5 contains the dynamic workflow. Existing C++ fixture results and legacy preview/execute smoke tests do not prove the new conversation-driven workflow or GUI. Record the following separately before claiming acceptance:
 
 - Start from a user-described goal and scope in a real DSH conversation. Verify that the current DSH Agent reads relevant code, selects/connects the exact VS target, obtains one bounded `begin` authorization, and adapts each atomic `perform` only after inspecting its evidence. No handwritten plan or plugin-owned model backend should be needed.
 - Verify the dynamic default budget (64 operations / 10 minutes), exhaustion/expiry, owner isolation, workspace changes, exact target checks and concurrent control rejection. Do not confuse these limits with the legacy fixed-plan budget.

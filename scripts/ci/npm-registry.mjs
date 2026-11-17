@@ -6,7 +6,7 @@ export async function verifyPublicPackage(
   bytes,
   {
     fetchImpl = fetch,
-    attempts = 60,
+    attempts = 180,
     delayMs = 10000,
     sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
     now = Date.now,
@@ -16,7 +16,7 @@ export async function verifyPublicPackage(
   if (
     !Number.isSafeInteger(attempts) ||
     attempts < 1 ||
-    attempts > 60 ||
+    attempts > 180 ||
     !Number.isSafeInteger(delayMs) ||
     delayMs < 0 ||
     delayMs > 10000

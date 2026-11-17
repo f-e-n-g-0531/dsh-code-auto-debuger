@@ -79,7 +79,7 @@ export class DebugService {
   ) {}
   capabilities() {
     return {
-      version: "0.1.4",
+      version: "0.1.5",
       backendId: this.backendId,
       protocol: 1,
       features: { dynamicDebug: true, observerPanel: true, legacyBatch: true },

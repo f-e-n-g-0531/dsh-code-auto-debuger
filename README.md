@@ -15,7 +15,7 @@
 将固定版本包安装到 **DSH 使用的插件依赖目录**，不要装进要调试的业务工程：
 
 ```powershell
-npm install --save-exact @feng0531/dsh-code-auto-debuger@0.1.4
+npm install --save-exact @feng0531/dsh-code-auto-debuger@0.1.5
 ```
 
 也可以安装 [GitHub Releases](https://github.com/f-e-n-g-0531/dsh-code-auto-debuger/releases) 中的 `.tgz` 包。安装后，在 DSH 的 Cordis 插件列表中加入以下条目；保留原有配置，不要覆盖整个文件：
@@ -42,7 +42,7 @@ npm install --save-exact @feng0531/dsh-code-auto-debuger@0.1.4
 
 “自动调试”面板用于观察证据、接管或取消，不是手写计划的主入口。刷新或丢失响应后先查询原任务，不能重复提交结果未知的操作。插件自动管理桥接程序，不需要手动启动。完整流程和授权示例见 [AI 辅助调试](docs/AI-DEBUGGING.md)。
 
-旧 `preview` / `execute` 固定计划接口保留兼容，不是正常使用入口。0.1.4 提供动态调查；历史 C++ 验收和已发布的 0.1.3 包不能证明新的对话闭环、接管或当前 DSH GUI 已通过实机验收。
+旧 `preview` / `execute` 固定计划接口保留兼容，不是正常使用入口。0.1.5 提供动态调查和显示名「张良 / Zhang Liang」；历史 C++ 验收和已发布的 0.1.3 包不能证明新的对话闭环、接管或当前 DSH GUI 已通过实机验收。
 
 ## 能力与限制
 

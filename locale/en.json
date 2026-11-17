@@ -1,4 +1,6 @@
 {
-  "name": "DSH Auto Debug",
-  "description": "Bounded external Visual Studio debugging for DSH; no VSIX."
+  "meta": {
+    "title": "张良 / Zhang Liang",
+    "description": "AI-led Visual Studio debugging from the current DSH conversation; no VSIX."
+  }
 }

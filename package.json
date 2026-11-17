@@ -1,7 +1,7 @@
 {
   "name": "@feng0531/dsh-code-auto-debuger",
-  "version": "0.1.4",
-  "description": "Bounded external Visual Studio debugging tools for DSH; no VSIX",
+  "version": "0.1.5",
+  "description": "张良 / Zhang Liang：让当前对话中的 AI 结合源码和 Visual Studio 调试证据定位问题；不是 VSIX。",
   "type": "module",
   "main": "./dist/plugin.js",
   "exports": {

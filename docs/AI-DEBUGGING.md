@@ -53,4 +53,4 @@ AI 是 DSH 当前对话中的 Agent。它先读相关代码，再根据 Visual S
 
 旧 `preview` / `execute` 保留给已有固定计划调用，仍受匹配预览、owner、过期和风险校验约束，不是本流程的主入口。旧计划的预算不能套用为动态会话默认值。
 
-本流程随 **0.1.4** 发布。历史 C++ fixture 和旧 preview/execute 测试不能证明新的 AI 对话闭环、接管或真实 DSH GUI 已通过。验收要求见[测试说明](testing.md)，完整边界见[安全说明](security.md)。
+本流程随 **0.1.5** 发布。历史 C++ fixture 和旧 preview/execute 测试不能证明新的 AI 对话闭环、接管或真实 DSH GUI 已通过。验收要求见[测试说明](testing.md)，完整边界见[安全说明](security.md)。

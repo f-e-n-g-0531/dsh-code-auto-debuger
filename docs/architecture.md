@@ -21,7 +21,7 @@ Cancel stops further automation; takeover returns control to the user. Neither i
 
 ## Baseline and non-goals
 
-The dynamic workflow ships in 0.1.4. Existing 0.1.3 packages and historical acceptance records do not prove this workflow on a real host. The candidate targets Windows x64, Node.js 22, .NET 8 and Visual Studio 2022. COM availability, elevation boundaries, debugger engines and UI readiness vary. The plugin does not install VSIX or modify an installed DSH profile. Publication is separate from runtime behavior. Hosted tests are not real-VS acceptance. See [testing](testing.md), [security](security.md), [CI](ci.md) and [releasing](releasing.md).
+The dynamic workflow ships in 0.1.5. Existing 0.1.3 packages and historical acceptance records do not prove this workflow on a real host. The candidate targets Windows x64, Node.js 22, .NET 8 and Visual Studio 2022. COM availability, elevation boundaries, debugger engines and UI readiness vary. The plugin does not install VSIX or modify an installed DSH profile. Publication is separate from runtime behavior. Hosted tests are not real-VS acceptance. See [testing](testing.md), [security](security.md), [CI](ci.md) and [releasing](releasing.md).
 
 ## Recovery in 0.1.2
 

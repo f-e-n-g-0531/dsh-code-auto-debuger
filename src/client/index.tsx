@@ -113,14 +113,14 @@ export function Panel({
   };
   const protocol = useRef<Data | null>(null);
   const compatible = (value: Data | null | undefined) =>
-    value?.version === "0.1.4" &&
+    value?.version === "0.1.5" &&
     value?.protocol === 1 &&
     value?.features?.dynamicDebug === true;
   const ensureProtocol = async () => {
     if (compatible(protocol.current)) return protocol.current;
     if (protocol.current) {
       throw new Error(
-        "前后端协议不匹配（需要 version 0.1.4 / protocol 1 / dynamicDebug），已禁止连接；请更新并重新读取能力",
+        "前后端协议不匹配（需要 version 0.1.5 / protocol 1 / dynamicDebug），已禁止连接；请更新并重新读取能力",
       );
     }
     return handshake();
@@ -141,7 +141,7 @@ export function Panel({
         setStatus(null);
       }
       throw new Error(
-        "前后端协议不匹配（需要 version 0.1.4 / protocol 1 / dynamicDebug），已禁止连接；请更新并重新读取能力",
+        "前后端协议不匹配（需要 version 0.1.5 / protocol 1 / dynamicDebug），已禁止连接；请更新并重新读取能力",
       );
     }
     protocol.current = value;
