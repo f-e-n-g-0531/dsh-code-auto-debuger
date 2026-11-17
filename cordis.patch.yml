@@ -1,0 +1,5 @@
+- insert:
+    - id: dsh-code-auto-debuger
+      name: '@feng0531/dsh-code-auto-debuger'
+      disabled: false
+      config: {}

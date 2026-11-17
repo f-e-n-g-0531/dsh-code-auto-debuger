@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.artifacts/
+.tmp/
+bridge/**/bin/
+bridge/**/obj/
+test/fixtures/**/bin/
+test/fixtures/**/obj/
+test/fixtures/**/build/
+test/fixtures/**/build-*/
+*.user
+.vs/

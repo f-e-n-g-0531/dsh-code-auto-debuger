@@ -1,0 +1,4 @@
+{
+  "name": "DSH Auto Debug",
+  "description": "Bounded external Visual Studio debugging for DSH; no VSIX."
+}

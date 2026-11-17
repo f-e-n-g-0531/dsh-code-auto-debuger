@@ -1,0 +1,94 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  candidate:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: ./scripts/ci/check-environment.ps1
+      - run: npm ci
+      - run: npm run build:bridge
+      - run: npm run check
+      - run: npm run test:host
+      - run: npm run test:com
+      - name: Require Windows bridge artifact
+        run: |
+          if (-not (Test-Path "dist/bridge/win-x64/dsh-vs-bridge.exe" -PathType Leaf)) { throw "Required Windows bridge artifact is missing" }
+      - run: npm run test:bridge
+      - run: ./bridge/ProtocolSmoke.ps1 -BridgePath ./dist/bridge/win-x64/dsh-vs-bridge.exe
+      - run: npm run verify:package
+      - run: npm run pack:candidate
+      - run: node scripts/ci/release-check.mjs
+      - run: npm run test:install
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsh-code-auto-debuger-candidate-${{ github.run_id }}
+          path: |
+            .artifacts/**/*.tgz
+            .artifacts/**/manifest.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+      - name: Summarize candidate result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: ./scripts/ci/summarize.ps1 -Context 'Validated package'
+  publish:
+    needs: candidate
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: dsh-code-auto-debuger-candidate-${{ github.run_id }}
+          path: .release
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Publish verified package to npm latest
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTOMATION_TOKEN }}
+        run: node scripts/ci/publish.mjs
+      - name: Publish GitHub release and verified assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          mapfile -t assets < <(find .release -type f \( -name '*.tgz' -o -name 'manifest.json' \))
+          test "${#assets[@]}" -eq 2
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            mkdir -p .existing
+            gh release download "$GITHUB_REF_NAME" --dir .existing
+            for asset in "${assets[@]}"; do cmp "$asset" ".existing/$(basename "$asset")"; done
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" --verify-tag --title "DSH Auto Debug $GITHUB_REF_NAME" --notes-file docs/RELEASE-0.1.1.md
+          fi

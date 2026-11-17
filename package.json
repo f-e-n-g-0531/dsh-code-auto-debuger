@@ -1,0 +1,69 @@
+{
+  "name": "@feng0531/dsh-code-auto-debuger",
+  "version": "0.1.1",
+  "description": "Bounded external Visual Studio debugging tools for DSH; no VSIX",
+  "type": "module",
+  "main": "./dist/plugin.js",
+  "exports": {
+    ".": "./dist/plugin.js",
+    "./client": "./dist/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/",
+    "cordis.patch.yml",
+    "locale/",
+    "README.md",
+    "docs/",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/f-e-n-g-0531/dsh-code-auto-debuger.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.mjs && node scripts/ci/verify-policy.mjs",
+    "check": "npm run typecheck && npm run build && npm test",
+    "build:bridge": "node scripts/build-bridge.mjs",
+    "test:bridge": "node --test test/bridge-client.test.mjs test/bridge-regression.test.mjs",
+    "test:host": "node --test test/host-smoke.test.mjs",
+    "test:com": "node scripts/test-com.mjs",
+    "verify:package": "node scripts/verify-package.mjs",
+    "pack:candidate": "node scripts/pack.mjs",
+    "test:install": "node scripts/test-install.mjs",
+    "test:integration": "node scripts/integration.mjs"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.3",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "esbuild": "^0.25.0",
+    "prettier": "^3.6.2",
+    "react": "19.3.1",
+    "react-test-renderer": "19.3.1",
+    "typescript": "~5.9.3"
+  }
+}

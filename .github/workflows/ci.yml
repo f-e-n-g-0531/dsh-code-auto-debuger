@@ -1,0 +1,42 @@
+name: Candidate CI
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: ./scripts/ci/check-environment.ps1
+      - run: npm ci
+      - run: npm run build:bridge
+      - run: npm run check
+      - run: npm run test:host
+      - run: npm run test:com
+      - name: Require Windows bridge artifact
+        run: |
+          if (-not (Test-Path "dist/bridge/win-x64/dsh-vs-bridge.exe" -PathType Leaf)) { throw "Required Windows bridge artifact is missing" }
+      - run: npm run test:bridge
+      - run: ./bridge/ProtocolSmoke.ps1 -BridgePath ./dist/bridge/win-x64/dsh-vs-bridge.exe
+      - run: npm run verify:package
+      - name: Summarize result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: ./scripts/ci/summarize.ps1 -Context 'Candidate CI'

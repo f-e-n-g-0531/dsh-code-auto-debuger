@@ -1,0 +1,107 @@
+name: Real Visual Studio integration (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      acknowledgment:
+        description: 'Type I_ACKNOWLEDGE_ISOLATED_VS_EXECUTION'
+        required: true
+        type: string
+      trusted_tag:
+        description: 'Reviewed semver tag (must match package and be on default-branch history)'
+        required: true
+        type: string
+      vs_instance:
+        description: 'Explicit Visual Studio instance identifier'
+        required: true
+        type: string
+      solution:
+        description: 'Dedicated repository-relative solution below test/fixtures/'
+        required: true
+        type: string
+      fixture_source:
+        description: 'Absolute fixture source path on dedicated runner (inside test/fixtures)'
+        required: true
+        type: string
+      fixture_line:
+        description: 'Positive executable breakpoint line in fixture source'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: isolated-vs-integration
+  cancel-in-progress: false
+jobs:
+  authorize:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    outputs:
+      trusted_sha: ${{ steps.trust.outputs.trusted_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate explicit acknowledgment and trusted version ref
+        id: trust
+        shell: pwsh
+        env:
+          ACK: ${{ inputs.acknowledgment }}
+          TAG: ${{ inputs.trusted_tag }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          if ($env:ACK -cne 'I_ACKNOWLEDGE_ISOLATED_VS_EXECUTION') { throw 'Explicit acknowledgment required.' }
+          if ($env:TAG -cnotmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$') { throw 'A semver version tag is required.' }
+          if ($env:DISPATCH_REF -ne "refs/heads/$env:DEFAULT_BRANCH") { throw 'Dispatch trusted workflow from default branch only.' }
+          $sha = git rev-parse --verify "refs/tags/$($env:TAG)^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw 'Tag not found.' }
+          git merge-base --is-ancestor $sha "origin/$env:DEFAULT_BRANCH"
+          if ($LASTEXITCODE -ne 0) { throw 'Tag is not on trusted default-branch history.' }
+          $tagPackage = git show "${sha}:package.json" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $env:TAG -cne "v$($tagPackage.version)") { throw "Tag must match tagged package version." }
+          "trusted_sha=$sha" >> $env:GITHUB_OUTPUT
+  integration:
+    needs: authorize
+    environment: vs-integration
+    runs-on: [self-hosted, Windows, X64, dsh-vs-interactive]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DSH_AUTO_DEBUG_INTEGRATION: '1'
+      DSH_AUTO_DEBUG_VS_INSTANCE: ${{ inputs.vs_instance }}
+      DSH_AUTO_DEBUG_SOLUTION: ${{ inputs.solution }}
+      DSH_AUTO_DEBUG_SOURCE: ${{ inputs.fixture_source }}
+      DSH_AUTO_DEBUG_LINE: ${{ inputs.fixture_line }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.authorize.outputs.trusted_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: ./scripts/ci/check-environment.ps1 -RequireInteractive
+      - run: npm ci
+      - run: npm run build:bridge
+      - run: npm run check
+      - run: npm run test:host
+      - run: npm run test:com
+      - name: Require Windows bridge artifact
+        run: |
+          if (-not (Test-Path "dist/bridge/win-x64/dsh-vs-bridge.exe" -PathType Leaf)) { throw "Required Windows bridge artifact is missing" }
+      - run: npm run test:bridge
+      - run: ./bridge/ProtocolSmoke.ps1 -BridgePath ./dist/bridge/win-x64/dsh-vs-bridge.exe
+      - run: npm run verify:package
+      - run: npm run test:integration
+      - name: Summarize real integration result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: ./scripts/ci/summarize.ps1 -Context 'Real Visual Studio integration'

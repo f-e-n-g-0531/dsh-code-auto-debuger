@@ -1,0 +1,191 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { apply } from "../dist/plugin.js";
+
+// Prefer declared local SDK dependencies. The sibling checkout is an optional,
+// read-only developer fixture, never an installed DSH profile or application.
+function sdkLocation() {
+  const bases = [new URL("../package.json", import.meta.url)];
+  if (process.env.DSH_SDK_FIXTURE)
+    bases.push(path.join(process.env.DSH_SDK_FIXTURE, "package.json"));
+  // CI uses the fixed local SDK dependency; no implicit sibling checkout fallback.
+  for (const base of bases) {
+    const resolve = createRequire(base).resolve;
+    try {
+      return {
+        tools: resolve("@deepseek-ai/dsh-tools"),
+        cordis: resolve("@deepseek-ai/cordis"),
+      };
+    } catch (error) {
+      if (error.code !== "MODULE_NOT_FOUND") throw error;
+    }
+  }
+}
+const sdkPaths = sdkLocation();
+assert(
+  sdkPaths,
+  "Fixed local DSH SDK dependencies are required; npm ci before host tests",
+);
+const sdk = sdkPaths ? await import(pathToFileURL(sdkPaths.tools).href) : null;
+const cordis = sdkPaths
+  ? await import(pathToFileURL(sdkPaths.cordis).href)
+  : null;
+
+async function fixture(t, tools) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "auto-debug-host-smoke-"));
+  const workspace = path.join(root, "workspace");
+  await mkdir(workspace);
+  const definitions = [],
+    disposers = [];
+  let rpc;
+  const ctx = {
+    tools: tools ?? {
+      register(definition) {
+        definitions.push(definition);
+      },
+    },
+    connection: {
+      register(owner, channel, handler) {
+        assert.equal(owner, ctx);
+        assert.equal(channel, "/auto-debug-rpc");
+        rpc = handler;
+      },
+    },
+    sessions: {
+      get(id) {
+        return id === "live" ? { header: { id, cwd: workspace } } : undefined;
+      },
+    },
+    sessionPersistence: {
+      async stat(id) {
+        return id === "persisted"
+          ? { header: { id, cwd: workspace } }
+          : undefined;
+      },
+    },
+    on(event, handler) {
+      assert.equal(event, "dispose");
+      disposers.push(handler);
+    },
+  };
+  const service = apply(ctx, { storageDirectory: path.join(root, "jobs") });
+  t.after(async () => {
+    for (const dispose of disposers) await dispose();
+    await rm(root, { recursive: true, force: true });
+  });
+  return { ctx, service, definitions, rpc, workspace };
+}
+
+test("host RPC contract matches browser flat payload and enforces session ownership", async (t) => {
+  const x = await fixture(t);
+  const caps = await x.rpc("capabilities", { sessionId: "live" });
+  assert.equal(caps.ok, true);
+  assert.equal(caps.value.protocol, 1);
+  assert.equal(
+    caps.value.verified,
+    false,
+    "smoke is not real Visual Studio acceptance",
+  );
+  assert.equal(
+    (await x.rpc("capabilities", { sessionId: "persisted" })).ok,
+    true,
+  );
+  for (const sessionId of ["missing", "", "../escape", "x/y", "x\\y"])
+    assert.equal(
+      (await x.rpc("capabilities", { sessionId })).error.code,
+      "INVALID_OWNER",
+    );
+  assert.equal(
+    (await x.rpc("launch", { sessionId: "live" })).error.code,
+    "UNKNOWN_ACTION",
+  );
+  assert.equal(
+    (await x.rpc("capabilities", { sessionId: "live", unexpected: true })).ok,
+    false,
+  );
+  const abort = new AbortController();
+  abort.abort();
+  assert.equal(
+    (await x.rpc("capabilities", { sessionId: "live" }, abort.signal)).ok,
+    false,
+  );
+});
+
+test("host tool calls derive owner from execution context, never model arguments", async (t) => {
+  const x = await fixture(t);
+  assert.equal(x.definitions.length, 12);
+  assert.equal(new Set(x.definitions.map((d) => d.name)).size, 12);
+  const capabilities = x.definitions.find(
+    (d) => d.name === "auto_debug_capabilities",
+  );
+  assert.equal(
+    (
+      await capabilities.execute(
+        {},
+        { agent: { session: { header: { id: "live" } } } },
+      )
+    ).protocol,
+    1,
+  );
+  await assert.rejects(
+    capabilities.execute({}, { agent: { session: { id: "missing" } } }),
+    { code: "INVALID_OWNER" },
+  );
+  await assert.rejects(
+    capabilities.execute(
+      { sessionId: "persisted" },
+      { agent: { session: { id: "live" } } },
+    ),
+  );
+  assert(
+    x.definitions.every((d) => d.parameters.additionalProperties === false),
+  );
+});
+
+test(
+  "real DSH SDK registry accepts all outputs and projects twelve schemas",
+  {},
+  async (t) => {
+    t.diagnostic("DSH SDK tools: " + sdkPaths.tools);
+    const ctx = new cordis.Context();
+    ctx.provide("systemPrompt", { tools() {} });
+    const registry = new sdk.ToolsService(ctx);
+    const x = await fixture(t, registry);
+    const definitions = registry.definitions();
+    assert.equal(definitions.length, 12);
+    const schemas = registry.schemas();
+    assert.equal(schemas.length, 12);
+    assert(
+      schemas.every(
+        (schema) =>
+          typeof schema.name === "string" &&
+          !("execute" in schema) &&
+          !("output" in schema),
+      ),
+    );
+    for (const definition of definitions) {
+      sdk.assertSupportedJsonSchema(definition.output.schema);
+      const value =
+        definition.name === "auto_debug_capabilities"
+          ? await definition.execute({}, { agent: { session: { id: "live" } } })
+          : { status: "unknown", externalState: "unknown", fixture: true };
+      assert.deepEqual(
+        sdk.validateJsonSchemaValue(definition.output.schema, value),
+        [],
+        definition.name,
+      );
+      const rendered = await definition.output.render({}, value);
+      assert.deepEqual(JSON.parse(rendered[0].text), value);
+      assert.equal(rendered[0].type, "text");
+      assert(
+        sdk.validateJsonSchemaValue(definition.output.schema, null).length > 0,
+      );
+    }
+    assert.equal((await x.rpc("capabilities", { sessionId: "live" })).ok, true);
+  },
+);
