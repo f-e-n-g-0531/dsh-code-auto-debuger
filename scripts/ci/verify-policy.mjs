@@ -5,7 +5,7 @@ for (const file of files) {
   const text = fs.readFileSync(
     new URL("../../.github/workflows/" + file, import.meta.url),
     "utf8",
-  );
+  ).replace(/\r\n/g, "\n");
   assert(!text.includes("\0"), file + ": binary content");
   const trigger = text.split("\non:\n")[1]?.split("\npermissions:")[0];
   assert(trigger, file + ": explicit trigger block required");

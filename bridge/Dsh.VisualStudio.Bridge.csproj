@@ -1,4 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
- <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0-windows</TargetFramework><RuntimeIdentifier>win-x64</RuntimeIdentifier><PlatformTarget>x64</PlatformTarget><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><AssemblyName>dsh-vs-bridge</AssemblyName><Version>0.1.1</Version></PropertyGroup>
+ <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0-windows</TargetFramework><RuntimeIdentifier>win-x64</RuntimeIdentifier><PlatformTarget>x64</PlatformTarget><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><AssemblyName>dsh-vs-bridge</AssemblyName><Version>0.1.2</Version></PropertyGroup>
  <ItemGroup><PackageReference Include="Microsoft.VisualStudio.Interop" Version="17.14.40260" GeneratePathProperty="true" ExcludeAssets="runtime" PrivateAssets="all" /><Reference Update="Microsoft.VisualStudio.Interop"><Private>false</Private></Reference></ItemGroup>
 </Project>

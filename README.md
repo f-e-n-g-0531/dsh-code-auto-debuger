@@ -15,7 +15,7 @@
 将固定版本包安装到 **DSH 使用的插件依赖目录**，不要装进要调试的业务工程：
 
 ```powershell
-npm install --save-exact @feng0531/dsh-code-auto-debuger@0.1.1
+npm install --save-exact @feng0531/dsh-code-auto-debuger@0.1.2
 ```
 
 也可以安装 [GitHub Releases](https://github.com/f-e-n-g-0531/dsh-code-auto-debuger/releases) 中的 `.tgz` 包。安装后，在 DSH 的 Cordis 插件列表中加入以下条目；保留原有配置，不要覆盖整个文件：
@@ -68,7 +68,7 @@ CI 仅由版本标签或手动触发，普通分支推送和 PR 不触发。完�
 - [架构](docs/architecture.md)
 - [安全边界](docs/security.md)
 - [CI 配置](docs/ci.md)
-- [0.1.1 修复与验收记录](docs/ACCEPTANCE-0.1.1.md)
+- [0.1.1 功能修复与验收记录](docs/ACCEPTANCE-0.1.1.md)
 
 ## 许可证
 

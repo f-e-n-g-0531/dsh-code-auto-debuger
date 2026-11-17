@@ -81,7 +81,7 @@ function backend(overrides = {}) {
     if (overrides[action]) return overrides[action](args);
     return {
       listJobs: { jobs: [], total: 0, hasMore: false },
-      capabilities: { version: "0.1.1", protocol: 1 },
+      capabilities: { version: "0.1.2", protocol: 1 },
       status: { state: "connected", target: { instanceId: "vs" } },
       discover: { instances: [{ instanceId: "vs" }] },
       connect: {},
@@ -207,7 +207,7 @@ test("session plus cwd isolation and query-only recovery of previous cwd jobs", 
 test("handshake mismatch fails closed before connect preview and execute; errors release flow lock", async () => {
   for (const gate of ["connect", "preview", "execute"]) {
     storage.clear();
-    let version = "0.1.1";
+    let version = "0.1.2";
     const b = backend({ capabilities: () => ({ version, protocol: 1 }) });
     const tree = await mount(b.rpc);
     await click(tree, "发现实例");
