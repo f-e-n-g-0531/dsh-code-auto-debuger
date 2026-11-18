@@ -113,14 +113,14 @@ export function Panel({
   };
   const protocol = useRef<Data | null>(null);
   const compatible = (value: Data | null | undefined) =>
-    value?.version === "0.1.5" &&
+    value?.version === "0.1.6" &&
     value?.protocol === 1 &&
     value?.features?.dynamicDebug === true;
   const ensureProtocol = async () => {
     if (compatible(protocol.current)) return protocol.current;
     if (protocol.current) {
       throw new Error(
-        "前后端协议不匹配（需要 version 0.1.5 / protocol 1 / dynamicDebug），已禁止连接；请更新并重新读取能力",
+        "前后端协议不匹配（需要 version 0.1.6 / protocol 1 / dynamicDebug），已禁止连接；请更新并重新读取能力",
       );
     }
     return handshake();
@@ -141,7 +141,7 @@ export function Panel({
         setStatus(null);
       }
       throw new Error(
-        "前后端协议不匹配（需要 version 0.1.5 / protocol 1 / dynamicDebug），已禁止连接；请更新并重新读取能力",
+        "前后端协议不匹配（需要 version 0.1.6 / protocol 1 / dynamicDebug），已禁止连接；请更新并重新读取能力",
       );
     }
     protocol.current = value;
@@ -352,6 +352,38 @@ export function Panel({
     };
   }, [key, jobId, terminalJob(job), busy, unknown]);
   const stack = snapshot?.stack ?? snapshot?.stackFrames ?? snapshot?.frames;
+  const hasInvestigation = Boolean(
+    investigation?.status && investigation.status !== "idle",
+  );
+  const statusLabel =
+    new Map([
+      ["active", "调查中"],
+      ["revoked", "授权已撤销"],
+      ["expired", "授权已到期"],
+      ["uncertain", "结果未确认"],
+    ]).get(investigation?.status) ?? investigation?.status;
+  const lastAction =
+    investigation?.lastAction ?? investigation?.history?.at(-1)?.action;
+  const actionLabel = new Map([
+    ["snapshot", "读取快照"],
+    ["waitForBreak", "等待断点"],
+    ["breakpointAdd", "设置断点"],
+    ["breakpointRemove", "移除断点"],
+    ["launch", "启动"],
+    ["continue", "继续运行"],
+    ["pause", "暂停"],
+    ["step", "单步"],
+    ["attach", "附加进程"],
+    ["detach", "分离进程"],
+    ["evaluate", "求值"],
+    ["terminate", "终止"],
+  ]);
+  const evidence =
+    evidenceJob?.results ??
+    investigation?.lastEvidence ??
+    investigation?.evidence;
+  const example =
+    "请帮我定位当前解决方案的启动崩溃。复现方式是【填写实际步骤】。只调试这个工程；允许启动、设置断点和单步，不修改源码、不附加进程、不求值、不终止程序。请说明定位证据和仍未确认的假设。";
   return (
     <section className="ad-root">
       <style>{styles}</style>
@@ -362,16 +394,132 @@ export function Panel({
         </div>
         <span className="ad-badge">观察调查 · 随时接管</span>
       </header>
-      <p>
-        在对话中描述问题并一次授权调查范围，AI
-        开始调查后根据证据动态选择下一步；此面板只观察与接管，不发起调试操作。
-      </p>
-      <p className="ad-hint">
-        例如：请调查当前解决方案的启动崩溃，允许在预算内运行、设置断点并单步；找到原因后报告证据。无需编写固定步骤。
-      </p>
-      {!session && <p role="alert">当前没有活动 DSH 会话，操作不可用。</p>}
+      <div aria-live="polite">
+        {busy && <p role="status">{busy}…</p>}
+        {notice && <p role="status">{notice}</p>}
+        {error && (
+          <p className="ad-warning" role="alert">
+            {error}。不可用不代表操作成功；请核对状态，不自动重试。
+          </p>
+        )}
+      </div>
+      {!session && <p role="alert">请先打开一个 DSH 对话并选好工程目录。</p>}
+      {session &&
+        !unknown &&
+        investigation?.status !== "uncertain" &&
+        investigation?.status !== "active" && (
+          <section className="ad-card ad-start">
+            <h2>在对话中开始调试</h2>
+            <p>
+              在 Visual Studio 打开目标解决方案。在当前 DSH
+              对话里说清楚问题、复现方式和允许的操作，不用手写调试计划。
+            </p>
+            <blockquote>{example}</blockquote>
+            <button
+              className="ad-primary"
+              onClick={async () => {
+                try {
+                  await globalThis.navigator.clipboard.writeText(example);
+                  if (mounted.current)
+                    setNotice("已复制。回到对话修改示例后再发送。");
+                } catch {
+                  if (mounted.current)
+                    setNotice("无法访问剪贴板，请手动选中并复制上方示例。");
+                }
+              }}
+            >
+              复制对话示例
+            </button>
+          </section>
+        )}
+      {(unknown || investigation?.status === "uncertain") && (
+        <p className="ad-warning" role="alert">
+          原任务结果未确认。请展开「任务恢复与历史」核对原任务和 Visual
+          Studio，不要重新提交。
+        </p>
+      )}
       <section className="ad-card">
-        <h2>1 · 实例与连接</h2>
+        <h2>当前调查</h2>
+        <button
+          disabled={!!busy || !session}
+          onClick={() => void run("刷新调查", refreshInvestigation)}
+        >
+          刷新调查
+        </button>
+        {!hasInvestigation && (
+          <p>
+            {investigation?.status === "idle"
+              ? "当前没有调查。请在对话中描述问题。"
+              : "尚未读到调查状态。"}
+          </p>
+        )}
+        {hasInvestigation && (
+          <>
+            <dl className="ad-overview">
+              <dt>调查目标</dt>
+              <dd>
+                {typeof investigation?.goal === "string"
+                  ? investigation.goal
+                  : "未提供"}
+              </dd>
+              <dt>调查状态</dt>
+              <dd>{statusLabel}（后台自报，非独立验收）</dd>
+              <dt>已用操作</dt>
+              <dd>
+                {investigation?.actionsUsed ?? "未提供"}
+                {typeof investigation?.budget?.maxCalls === "number"
+                  ? " / " + investigation.budget.maxCalls
+                  : ""}
+              </dd>
+              <dt>最近操作</dt>
+              <dd>
+                {typeof lastAction === "string"
+                  ? (actionLabel.get(lastAction) ?? lastAction)
+                  : "尚无记录"}
+              </dd>
+            </dl>
+            {evidence !== undefined && (
+              <details className="ad-fold ad-evidence">
+                <summary>查看最近一次调试证据</summary>
+                <pre>{pretty(evidence)}</pre>
+              </details>
+            )}
+            <details className="ad-fold ad-evidence">
+              <summary>查看调查详情与完整操作记录</summary>
+              <pre>{pretty(investigation)}</pre>
+            </details>
+          </>
+        )}
+        <button
+          disabled={!!busy || !session}
+          onClick={() =>
+            void run("手动接管", async () => {
+              // Omit identity deliberately: the backend atomically revokes the current investigation.
+              ++observationVersion.current;
+              const value = await call("takeover");
+              if (!mounted.current) return;
+              setInvestigation(value?.investigation ?? value);
+              await refreshInvestigation();
+              await recoverJobs();
+              if (mounted.current)
+                setNotice(
+                  "已请求撤销调查并取消 active 任务，停止 AI 后续调试；这不是暂停或终止目标进程，已发生的操作不会回滚。请在 Visual Studio 核对后手动接管。",
+                );
+            })
+          }
+        >
+          停止 AI 后续调试 / 手动接管
+        </button>
+        <p className="ad-warning">
+          接管会撤销调查授权并请求取消活动任务，不是暂停、终止进程或回滚。正在执行的操作可能已经产生副作用；请核对
+          VS。
+        </p>
+      </section>
+      <details className="ad-card ad-fold">
+        <summary>手动连接 Visual Studio</summary>
+        <p className="ad-hint">
+          仅在对话中无法确认或连接到目标时使用。选择实例不会启动程序。
+        </p>
         <p className="ad-hint">
           会话：{session?.id || "未选择"} · 工作区：{session?.cwd || "未提供"}
         </p>
@@ -498,79 +646,9 @@ export function Panel({
               : "尚未读取；不可据此认定任何能力可用。"}
           </pre>
         </details>
-      </section>
-      <section className="ad-card">
-        <h2>2 · 当前调查</h2>
-        <button
-          disabled={!!busy || !session}
-          onClick={() => void run("刷新调查", refreshInvestigation)}
-        >
-          刷新调查
-        </button>
-        <dl>
-          <dt>目标 goal</dt>
-          <dd>{pretty(investigation?.goal)}</dd>
-          <dt>状态 status</dt>
-          <dd>
-            {investigation?.status
-              ? `${investigation.status}（后台自报，非独立验收）`
-              : "尚未读取"}
-          </dd>
-          <dt>调试对象 target</dt>
-          <dd>
-            <pre>{pretty(investigation?.target)}</pre>
-          </dd>
-          <dt>预算 budget</dt>
-          <dd>
-            <pre>{pretty(investigation?.budget)}</pre>
-          </dd>
-          <dt>最近操作 last action</dt>
-          <dd>
-            <pre>
-              {pretty(
-                investigation?.lastAction ?? investigation?.history?.at(-1),
-              )}
-            </pre>
-          </dd>
-        </dl>
-        {investigation?.status === "idle" && (
-          <p>当前没有调查。请在对话中授权 AI 调查范围。</p>
-        )}
-        <p>
-          调查 ID：{investigation?.investigationId ?? "无"} · 已用调用：
-          {investigation?.actionsUsed ?? "未提供"}
-        </p>
-        <h3>调查证据</h3>
-        <pre>{pretty(evidenceJob?.results ?? investigation?.evidence)}</pre>
-        <h3>操作记录</h3>
-        <pre>{pretty(investigation?.history)}</pre>
-        <button
-          disabled={!!busy || !session}
-          onClick={() =>
-            void run("手动接管", async () => {
-              // Omit identity deliberately: the backend atomically revokes the current investigation.
-              ++observationVersion.current;
-              const value = await call("takeover");
-              if (!mounted.current) return;
-              setInvestigation(value?.investigation ?? value);
-              await refreshInvestigation();
-              await recoverJobs();
-              if (mounted.current)
-                setNotice(
-                  "已请求撤销调查并取消 active 任务，停止 AI 后续调试；这不是暂停或终止目标进程，已发生的操作不会回滚。请在 Visual Studio 核对后手动接管。",
-                );
-            })
-          }
-        >
-          停止 AI 后续调试 / 手动接管
-        </button>
-        <p className="ad-warning">
-          接管会撤销调查授权并请求取消活动任务，不是暂停、终止进程或回滚。正在执行的操作可能已经产生副作用；请核对
-          VS。
-        </p>
-      </section>
-      <section className="ad-card">
-        <h2>3 · 任务与执行进度</h2>
+      </details>
+      <details className="ad-card ad-fold">
+        <summary>任务恢复与历史</summary>
         {recoveryWarning && (
           <p role="alert" className="ad-warning">
             {recoveryWarning}
@@ -760,10 +838,10 @@ export function Panel({
             Studio，不能将中断视为失败或回滚。若任务身份丢失，需由宿主恢复记录，不可通过重新提交试探。
           </p>
         )}
-      </section>
-      <section className="ad-card">
+      </details>
+      <details className="ad-card ad-fold">
+        <summary>手动读取调试快照</summary>
         <div className="ad-actions">
-          <h2>4 · 调试快照与调用栈</h2>
           <button
             disabled={!!busy || !session}
             onClick={() =>
@@ -798,16 +876,7 @@ export function Panel({
           </ol>
         )}
         <pre>{snapshot ? pretty(snapshot) : "尚无可用快照。"}</pre>
-      </section>
-      <div aria-live="polite">
-        {busy && <p role="status">{busy}…</p>}
-        {notice && <p role="status">{notice}</p>}
-        {error && (
-          <p className="ad-warning" role="alert">
-            {error}。不可用不代表操作成功；请核对状态，不自动重试。
-          </p>
-        )}
-      </div>
+      </details>
     </section>
   );
 }

@@ -37,7 +37,8 @@ const text = (node) =>
   node.children.map((c) => (typeof c === "string" ? c : text(c))).join("");
 const button = (tree, label) =>
   tree.root.findAllByType("button").find((node) => text(node) === label);
-const rendered = (tree) => text(tree.root.findByType("section"));
+const rendered = (tree) =>
+  text(tree.root.findByProps({ className: "ad-root" }));
 async function click(tree, label) {
   const node = button(tree, label);
   assert(node, label);
@@ -53,7 +54,7 @@ function backend(overrides = {}) {
     if (overrides[action]) return overrides[action](args, signal);
     return {
       capabilities: {
-        version: "0.1.5",
+        version: "0.1.6",
         protocol: 1,
         features: { dynamicDebug: true },
       },
@@ -110,12 +111,29 @@ test("observer mounts idle without a fixed-plan editor or execution controls", a
     for (const node of tree.root.findAllByType("button"))
       assert(!/launch|step|预览|确认执行|添加/.test(text(node)));
     assert.match(rendered(tree), /当前没有调查/);
-    assert.match(rendered(tree), /在对话中/);
+    assert.match(rendered(tree), /在对话中开始调试/);
+    const folds = tree.root.findAllByType("details");
+    for (const label of [
+      "手动连接 Visual Studio",
+      "任务恢复与历史",
+      "手动读取调试快照",
+    ]) {
+      const fold = folds.find(
+        (entry) => text(entry.findAllByType("summary")[0]) === label,
+      );
+      assert(fold, label);
+      assert(!fold.props.open, label);
+    }
+    const beforeCopy = b.calls.length;
+    await click(tree, "复制对话示例");
+    assert.match(rendered(tree), /手动选中并复制/);
+    assert.equal(b.calls.length, beforeCopy);
     forbidden(b.calls);
-    assert.deepEqual(
-      [...new Set(b.calls.map((c) => c.action))].sort(),
-      ["capabilities", "investigation", "listJobs"],
-    );
+    assert.deepEqual([...new Set(b.calls.map((c) => c.action))].sort(), [
+      "capabilities",
+      "investigation",
+      "listJobs",
+    ]);
   } finally {
     await unmount(tree);
   }
@@ -144,7 +162,7 @@ test("VS discovery does not connect until the selected instance is explicitly co
 test("capability version and dynamic feature gates reject stale backends before connect", async () => {
   for (const caps of [
     { version: "0.1.2", protocol: 1, features: { dynamicDebug: true } },
-    { version: "0.1.5", protocol: 1 },
+    { version: "0.1.6", protocol: 1 },
   ]) {
     const b = backend({ capabilities: () => caps }),
       tree = await mount(b.rpc);
@@ -192,6 +210,10 @@ test("investigation fields and last job results are rendered as evidence", async
   });
   const tree = await mount(b.rpc);
   try {
+    assert.doesNotMatch(rendered(tree), /在对话中开始调试/);
+    assert.match(rendered(tree), /调查中（后台自报，非独立验收）/);
+    assert.match(rendered(tree), /2 \/ 64/);
+    assert.match(rendered(tree), /读取快照/);
     for (const value of [
       "startup crash",
       "active",
@@ -305,10 +327,7 @@ test("unresolved request recovery does not adopt a different same-cwd job", asyn
     assert.equal(jobs.get(sessionKey(session)).jobId, "");
     assert.equal(jobs.get(sessionKey(session)).unknown, true);
     assert.match(rendered(tree), /不证明原请求未执行/);
-    assert.equal(
-      tree.root.findAllByType("input").at(-1).props.value,
-      "",
-    );
+    assert.equal(tree.root.findAllByType("input").at(-1).props.value, "");
     forbidden(b.calls);
   } finally {
     await unmount(tree);

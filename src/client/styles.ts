@@ -17,11 +17,14 @@ export const styles = `.ad-root {
 .ad-root h2 { font-size: 17px; margin: 0 0 12px; }
 .ad-eyebrow { font-size: 11px; letter-spacing: .12em; color: #9aaac0; margin: 0; }
 .ad-badge { background: #233849; color: #a1d5ef; padding: 5px 12px; border-radius: 24px; }
-.ad-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
-  gap: 16px;
-}
+.ad-start { border-color: #5789af; }
+.ad-start blockquote { margin: 12px 0; padding: 10px 14px; border-left: 3px solid #5789af; background: rgba(124,144,170,.08); }
+.ad-overview { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; }
+.ad-overview dt { color: #99a8bb; }
+.ad-overview dd { margin: 0; overflow-wrap: anywhere; }
+.ad-fold > summary { cursor: pointer; font-weight: 600; }
+.ad-fold[open] > summary { margin-bottom: 10px; }
+.ad-evidence { margin: 10px 0; }
 .ad-card {
   min-width: 0;
   background: var(--background-secondary, rgba(124,144,170,.065));
@@ -30,7 +33,6 @@ export const styles = `.ad-root {
   padding: 20px;
   margin: 16px 0;
 }
-.ad-grid .ad-card { margin: 8px 0; }
 .ad-root label { display: flex; flex-direction: column; gap: 5px; margin: 12px 0; flex: 1; min-width: 0; }
 .ad-root input, .ad-root select, .ad-root textarea {
   font: inherit;
@@ -66,7 +68,6 @@ export const styles = `.ad-root {
 .ad-stack li { padding: 6px; overflow-wrap: anywhere; }
 .ad-stack span { display: block; color: #99a8bb; }
 @media (max-width: 800px) {
-  .ad-grid { grid-template-columns: minmax(0, 1fr); }
   .ad-root { padding: 12px; }
   .ad-card { padding: 14px; }
 }
