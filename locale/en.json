@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "张良 / Zhang Liang",
-    "description": "AI-led Visual Studio debugging from the current DSH conversation; no VSIX."
+    "description": "Debug Visual Studio projects from your DSH conversation."
   }
 }

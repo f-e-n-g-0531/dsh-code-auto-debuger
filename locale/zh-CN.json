@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "张良 / Zhang Liang",
-    "description": "让当前对话中的 AI 结合源码和 Visual Studio 调试证据定位问题；不是 VSIX。"
+    "description": "在 DSH 对话中调试 Visual Studio 项目。"
   }
 }

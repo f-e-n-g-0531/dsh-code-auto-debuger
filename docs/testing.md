@@ -9,6 +9,7 @@ npm ci
 npm run build:bridge
 npm run check
 npm run test:host
+npm run test:com
 npm run test:bridge
 ./bridge/ProtocolSmoke.ps1 -BridgePath ./dist/bridge/win-x64/dsh-vs-bridge.exe
 npm run verify:package
@@ -20,7 +21,7 @@ npm ci installs development dependencies in the checkout; it is not production p
 
 ## Dynamic AI workflow acceptance (not yet proven)
 
-Version 0.1.5 contains the dynamic workflow. Existing C++ fixture results and legacy preview/execute smoke tests do not prove the new conversation-driven workflow or GUI. Record the following separately before claiming acceptance:
+Historical C++ fixture results and `preview` / `execute` smoke tests do not prove the conversation-driven workflow or GUI. Record the following separately before claiming acceptance:
 
 - Start from a user-described goal and scope in a real DSH conversation. Verify that the current DSH Agent reads relevant code, selects/connects the exact VS target, obtains one bounded `begin` authorization, and adapts each atomic `perform` only after inspecting its evidence. No handwritten plan or plugin-owned model backend should be needed.
 - Verify the dynamic default budget (64 operations / 10 minutes), exhaustion/expiry, owner isolation, workspace changes, exact target checks and concurrent control rejection. Do not confuse these limits with the legacy fixed-plan budget.
@@ -38,9 +39,9 @@ Run `node scripts/prepare-host-acceptance.mjs <candidate-manifest.json>` to chec
 2. Open the panel on a new fixture session. Verify it is idle without issuing a message or debugger command, and verify a real `auto_debug_capabilities` tool call. In the real conversation, explicitly authorize the dedicated VS fixture, observe `begin` and evidence-driven `perform`, and corroborate the breakpoint and stack in VS. Use panel takeover and confirm there are no new debugger commands; do not interpret it as pausing, terminating or rolling back the target.
 3. Record DSH, VS and OS versions, per-check outcomes and redacted evidence in a result beside the checklist. A blocked or unobserved step stays blocked or not tested. Mark a full pass only after all checks and cleanup of test-owned resources pass.
 
-## Real-host acceptance
+## Visual Studio fixture integration
 
-Use the manually gated workflow described in [CI](ci.md), never a production solution. Explicitly select the VS instance and a fixture solution under test/fixtures. The test entrypoint is npm run test:integration; it requires DSH_AUTO_DEBUG_INTEGRATION=1 plus DSH_AUTO_DEBUG_VS_INSTANCE, DSH_AUTO_DEBUG_SOLUTION, DSH_AUTO_DEBUG_SOURCE (absolute fixture source path) and DSH_AUTO_DEBUG_LINE (positive executable breakpoint line). The strict smoke test verifies the expected function and exact marker source line, requires actual source/instruction advancement after step, queries owned breakpoints after deletion, and verifies cleanup of captured test-owned descendants. Missing source location or unproven advancement is not_verified failure, not PASS. Existing VS roots are retained; only newly observed owned descendants are eligible for cleanup. Do not convert missing prerequisites into skip/success. Each invocation writes its own `.artifacts/vs-runs/<run-id>/result.json`; a pass belongs only to that run and includes its cleanup scope.
+Use the manually gated workflow described in [CI](ci.md), never a production solution. Explicitly select the VS instance and a fixture solution under test/fixtures. The test entrypoint is npm run test:integration; it requires DSH_AUTO_DEBUG_INTEGRATION=1 plus DSH_AUTO_DEBUG_VS_INSTANCE, DSH_AUTO_DEBUG_SOLUTION, DSH_AUTO_DEBUG_SOURCE (absolute fixture source path) and, optionally, DSH_AUTO_DEBUG_LINE (positive executable breakpoint line; required by the GitHub workflow). Without a line, the local script searches the source for the marker. The strict smoke test verifies the expected function and exact marker source line, requires actual source/instruction advancement after step, queries owned breakpoints after deletion, and verifies cleanup of captured test-owned descendants. Missing source location or unproven advancement is not_verified failure, not PASS. Existing VS roots are retained; only newly observed owned descendants are eligible for cleanup. Do not convert missing prerequisites into skip/success. Each invocation writes its own `.artifacts/vs-runs/<run-id>/result.json`; a pass belongs only to that run and includes its cleanup scope.
 
 For the underlying debugger actions, retain evidence for discovery and exact target connection; breakpoint placement/removal; launch or explicit attach; pause/continue/step; bounded wait-for-break; snapshot shape and source/frame bounds; disconnection; and cancellation with external state independently checked. Evaluate and terminate only with separate explicit risk acknowledgment on disposable debuggees. Distinguish actions exercised by the automated integration runner from this broader manual acceptance checklist: a passing limited smoke test does not prove all debugger engines or all actions.
 

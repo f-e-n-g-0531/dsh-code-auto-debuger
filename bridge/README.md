@@ -1,14 +1,14 @@
 # External Visual Studio COM bridge
 
-Windows x64 console, .NET 8 SDK to build, .NET 8 runtime to run. No VSIX, installer or registry changes. Official Microsoft.VisualStudio.Interop 17.14.40260 definitions are a build-time dependency and runtime resolution from the installed VS 2022 PublicAssemblies prerequisite; SDK DLLs are not redistributed. Uses dynamic COM against an already-running interactive Visual Studio instance with matching privilege level.
+Windows x64 console. Building requires the .NET 8 SDK; the distributed bridge is self-contained. No VSIX, installer or registry changes. Official Microsoft.VisualStudio.Interop 17.14.40260 definitions are a build-time dependency and runtime resolution from the installed VS 2022 PublicAssemblies prerequisite; SDK DLLs are not redistributed. Uses dynamic COM against an already-running interactive Visual Studio instance with matching privilege level.
 
 ## Build
 
 ```powershell
- dotnet build bridge/Dsh.VisualStudio.Bridge.csproj -c Release
+npm run build:bridge
 ```
 
-Executable: [dsh-vs-bridge.exe](<bin/Release/net8.0-windows/win-x64/dsh-vs-bridge.exe>). Do not install or auto-start Visual Studio. Start the bridge only through an authorized owner; stdin grants full capabilities on the explicitly selected instance, not an authentication boundary.
+From the repository root, this creates `dist/bridge/win-x64/dsh-vs-bridge.exe`. Do not install or auto-start Visual Studio. Start the bridge only through an authorized owner; stdin grants full capabilities on the explicitly selected instance, not an authentication boundary.
 
 ## JSONL protocol 1
 
@@ -50,7 +50,7 @@ Snapshot reads metadata only: at most 64 threads and 64 current-thread frames; b
 
 Run [ProtocolSmoke.ps1](<ProtocolSmoke.ps1>) after building for disconnected-only framing/validation/EOF tests; it deliberately never calls discover/connect. API signatures and constants are checked against Microsoft Learn: [Breakpoints.Add](https://learn.microsoft.com/en-us/dotnet/api/envdte.breakpoints.add?view=visualstudiosdk-2022), [breakpoint types](https://learn.microsoft.com/en-us/dotnet/api/envdte.dbgbreakpointtype?view=visualstudiosdk-2022), [GetExpression](https://learn.microsoft.com/en-us/dotnet/api/envdte.debugger.getexpression?view=visualstudiosdk-2022), [StackFrame2](https://learn.microsoft.com/en-us/dotnet/api/envdte90a.stackframe2?view=visualstudiosdk-2022). This is documentation evidence, not live COM verification.
 
-[C# fixture](<../test/fixtures/csharp/Program.cs>) and [C++ fixture](<../test/fixtures/cpp/main.cpp>) repeatedly call Add(20,22) with stable breakpoint markers for about 60 seconds. C# RiskyValue increments a counter if explicitly evaluated; snapshot must not touch it. Build C# with dotnet build test/fixtures/csharp/DebugFixture.csproj -c Debug. Generate C++ with cmake -S test/fixtures/cpp -B test/fixtures/cpp/build -G "Visual Studio 17 2022" -A x64, then cmake --build test/fixtures/cpp/build --config Debug. Fixtures must run only in a dedicated, authorized interactive test session.
+[C# fixture](<../test/fixtures/csharp/Program.cs>) and [C++ fixture](<../test/fixtures/cpp/main.cpp>) provide stable breakpoint markers. C# RiskyValue increments a counter if explicitly evaluated; snapshot must not touch it. Build C# with dotnet build test/fixtures/csharp/DebugFixture.csproj -c Debug. Generate C++ with cmake -S test/fixtures/cpp -B test/fixtures/cpp/build -G "Visual Studio 17 2022" -A x64, then cmake --build test/fixtures/cpp/build --config Debug. Fixtures must run only in a dedicated, authorized interactive test session.
 
 [IntegrationSmoke.ps1](<IntegrationSmoke.ps1>) requires explicit -AllowNewVisualStudioFixture and starts/tracks/cleans only its new fixture VS PID. Live attempt on this machine was blocked by the modal “评审项目和解决方案更改” reporting unsupported projects or changes required. Discovery received RPC_E_CALL_REJECTED while the modal was open. No debug mutations completed; the modal was not accepted and all test-owned VS PIDs were cleaned. The original C# dynamic COM binder also failed on MainWindow; direct IDispatch reflection now avoids that typelib-dependent binding, successful native live property/debugger calls were subsequently verified as recorded below; C# live loading remains unverified.
 
