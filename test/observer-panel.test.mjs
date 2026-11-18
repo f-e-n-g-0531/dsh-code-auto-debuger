@@ -54,7 +54,7 @@ function backend(overrides = {}) {
     if (overrides[action]) return overrides[action](args, signal);
     return {
       capabilities: {
-        version: "0.1.6",
+        version: "0.1.7",
         protocol: 1,
         features: { dynamicDebug: true },
       },
@@ -162,7 +162,7 @@ test("VS discovery does not connect until the selected instance is explicitly co
 test("capability version and dynamic feature gates reject stale backends before connect", async () => {
   for (const caps of [
     { version: "0.1.2", protocol: 1, features: { dynamicDebug: true } },
-    { version: "0.1.6", protocol: 1 },
+    { version: "0.1.7", protocol: 1 },
   ]) {
     const b = backend({ capabilities: () => caps }),
       tree = await mount(b.rpc);
@@ -259,6 +259,105 @@ test("takeover revokes current investigation without debugger pause or terminati
     forbidden(b.calls);
   } finally {
     await unmount(tree);
+  }
+});
+
+test("takeover dispatches once while a manual snapshot is blocked", async () => {
+  let releaseSnapshot, releaseTakeover;
+  const b = backend({
+    snapshot: () =>
+      new Promise((resolve) => {
+        releaseSnapshot = resolve;
+      }),
+    takeover: () =>
+      new Promise((resolve) => {
+        releaseTakeover = resolve;
+      }),
+  });
+  const tree = await mount(b.rpc);
+  try {
+    await click(tree, "读取只读快照");
+    const take = button(tree, "停止 AI 后续调试 / 手动接管");
+    assert(!take.props.disabled);
+    await act(async () => {
+      take.props.onClick();
+      take.props.onClick();
+    });
+    assert.equal(b.calls.filter((c) => c.action === "takeover").length, 1);
+    await act(async () => {
+      releaseTakeover({ status: "revoked" });
+    });
+    assert.match(rendered(tree), /已请求撤销调查/);
+    assert(!b.calls.some((c) => ["pause", "terminate"].includes(c.action)));
+  } finally {
+    await act(async () => {
+      releaseSnapshot?.({});
+    });
+    await unmount(tree);
+  }
+});
+
+test("manual refresh restores polling and stable revisions do not refetch evidence", async () => {
+  let mode = "active",
+    status = "running";
+  const b = backend({
+    investigation: () => {
+      if (mode === "fail") throw Error("offline");
+      return { status: mode, lastJobId: "one", history: [{ status }] };
+    },
+    jobStatus: () => ({ jobId: "one", status, results: [] }),
+  });
+  const tree = await mount(b.rpc);
+  const tick = () =>
+    act(async () => {
+      await new Promise((r) => setTimeout(r, 1100));
+    });
+  try {
+    await tick();
+    const details = () =>
+      b.calls.filter((c) => c.action === "jobStatus").length;
+    assert.equal(details(), 1);
+    status = "succeeded";
+    await tick();
+    assert.equal(details(), 2);
+    mode = "fail";
+    await tick();
+    assert.match(rendered(tree), /调查观察中断/);
+    mode = "active";
+    await click(tree, "刷新调查");
+    mode = "revoked";
+    await tick();
+    assert.match(rendered(tree), /授权已撤销/);
+    assert.doesNotMatch(rendered(tree), /调查观察中断/);
+  } finally {
+    await unmount(tree);
+  }
+});
+
+test("missing original request retains storage diagnostics and correlation", async () => {
+  for (const incomplete of [false, true]) {
+    const jobs = createJobStore(),
+      key = sessionKey(session);
+    jobs.set(key, {
+      jobId: "",
+      job: null,
+      requestId: "original",
+      unknown: true,
+    });
+    const b = backend({ listJobs: () => ({ jobs: [], incomplete }) });
+    const tree = await mount(b.rpc, jobs);
+    try {
+      assert.match(rendered(tree), /未找到匹配任务/);
+      assert.equal(
+        rendered(tree).includes("后台任务存储不可用或列表不完整"),
+        incomplete,
+      );
+      assert.equal(jobs.get(key).requestId, "original");
+      assert.equal(jobs.get(key).unknown, true);
+      forbidden(b.calls);
+    } finally {
+      await unmount(tree);
+    }
   }
 });
 

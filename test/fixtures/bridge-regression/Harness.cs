@@ -24,6 +24,23 @@ internal static class Harness
     public static void Main()
     {
         using var scope = new ComScope();
+        using var session = new VisualStudioSession();
+        var original = new Target("original", 1, "1", "original.sln", "17.0");
+        var candidate = new Target("new", 2, "2", "new.sln", "17.0");
+        Func<string> failedObservation = () => throw new COMException("observation failed");
+        var targetField = typeof(VisualStudioSession).GetField("target", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        void RejectCandidate(Target? expected)
+        {
+            try { session.BindCandidate(new object(), candidate, failedObservation); throw new Exception("Expected COM failure"); }
+            catch (COMException) { }
+            if (!Equals(targetField.GetValue(session), expected)) throw new Exception("Connection changed despite failed observation");
+        }
+        RejectCandidate(null);
+        session.BindCandidate(new object(), original, () => "design");
+        RejectCandidate(original);
+        session.BindCandidate(new object(), candidate, () => "break");
+        if (!Equals(targetField.GetValue(session), candidate)) throw new Exception("Valid candidate not committed");
+        if (ExtendedAutomation.Position(new object()) != null) throw new Exception("Optional extended stack location was fabricated");
         var value = JsonSerializer.SerializeToElement(VisualStudioSession.ObserveCreatedBreakpoint("created-id", new ObservationFailure(), scope));
         if (value.GetProperty("breakpointId").GetString() != "created-id" || !value.GetProperty("created").GetBoolean() || value.GetProperty("bound").ValueKind != JsonValueKind.Null || value.GetProperty("observationError").GetString() == null) throw new Exception("Partial add lost identity");
         var typeFailure = JsonSerializer.SerializeToElement(VisualStudioSession.ObserveCreatedBreakpoint("type-id", new TypeObservationFailure(), scope));

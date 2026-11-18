@@ -3,5 +3,8 @@ namespace Dsh.VisualStudio.Bridge;
 // vtables; do not invoke selected derived members through a partial interface.
 internal static class ExtendedAutomation {
  internal static object Raw(object value)=>value is ComDispatch wrapped?wrapped.Value:value;
- internal static object Position(object frame){var typed=(EnvDTE90a.StackFrame2)Raw(frame);return new {file=typed.FileName,line=(int)typed.LineNumber};}
+ internal static object? Position(object frame){
+  if (Raw(frame) is not EnvDTE90a.StackFrame2 typed) return null;
+  return new {file=typed.FileName,line=(int)typed.LineNumber};
+ }
 }

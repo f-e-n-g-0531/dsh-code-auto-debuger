@@ -101,6 +101,11 @@ export function Panel({
     };
   }, []);
   const observationVersion = useRef(0);
+  const [pollGeneration, restartPoll] = useState(0);
+  const [observationError, setObservationError] = useState("");
+  const takeoverLock = useRef(false);
+  const [takingOver, setTakingOver] = useState(false);
+  const [takeoverError, setTakeoverError] = useState("");
   const [evidenceJob, setEvidenceJob] = useState<Data | null>(null);
   const persist = (id: string, value: Data | null, uncertain: boolean) => {
     if (session)
@@ -113,14 +118,14 @@ export function Panel({
   };
   const protocol = useRef<Data | null>(null);
   const compatible = (value: Data | null | undefined) =>
-    value?.version === "0.1.6" &&
+    value?.version === "0.1.7" &&
     value?.protocol === 1 &&
     value?.features?.dynamicDebug === true;
   const ensureProtocol = async () => {
     if (compatible(protocol.current)) return protocol.current;
     if (protocol.current) {
       throw new Error(
-        "前后端协议不匹配（需要 version 0.1.6 / protocol 1 / dynamicDebug），已禁止连接；请更新并重新读取能力",
+        "前后端协议不匹配（需要 version 0.1.7 / protocol 1 / dynamicDebug），已禁止连接；请更新并重新读取能力",
       );
     }
     return handshake();
@@ -141,7 +146,7 @@ export function Panel({
         setStatus(null);
       }
       throw new Error(
-        "前后端协议不匹配（需要 version 0.1.6 / protocol 1 / dynamicDebug），已禁止连接；请更新并重新读取能力",
+        "前后端协议不匹配（需要 version 0.1.7 / protocol 1 / dynamicDebug），已禁止连接；请更新并重新读取能力",
       );
     }
     protocol.current = value;
@@ -159,6 +164,12 @@ export function Panel({
         ...(!all && current.requestId ? { requestId: current.requestId } : {}),
       });
       if (!Array.isArray(value?.jobs)) throw new Error("后台任务列表不可识别");
+      if (mounted.current)
+        setRecoveryWarning(
+          value.storageUnavailable || value.incomplete
+            ? "后台任务存储不可用或列表不完整；未列出任务不证明未执行。请保留原请求标识并稍后重新查询，勿重复提交。"
+            : "",
+        );
       if (
         current.requestId &&
         !all &&
@@ -167,7 +178,7 @@ export function Panel({
         if (mounted.current) {
           setRecovered([]);
           setHasMoreJobs(false);
-          setRecoveryWarning("");
+          setRecoveryOffset(offset);
           setNotice(
             "未找到匹配任务；不证明原请求未执行。可再次查询或明确选择原任务。",
           );
@@ -178,11 +189,6 @@ export function Panel({
         setRecovered(value.jobs);
         setRecoveryOffset(offset);
         setHasMoreJobs(value.hasMore === true);
-        setRecoveryWarning(
-          value.storageUnavailable || value.incomplete
-            ? "后台任务存储不可用或列表不完整；未列出任务不证明未执行。请保留原请求标识并稍后重新查询，勿重复提交。"
-            : "",
-        );
       }
       // An unresolved requestId may only bind its own job. A same-cwd row is a different task.
       const match = current.requestId
@@ -237,8 +243,15 @@ export function Panel({
   async function refreshInvestigation() {
     const version = ++observationVersion.current;
     const value = await call("investigation");
-    if (mounted.current && version === observationVersion.current)
+    if (
+      mounted.current &&
+      !takeoverLock.current &&
+      version === observationVersion.current
+    ) {
       setInvestigation(value);
+      setObservationError("");
+      restartPoll((n) => n + 1);
+    }
   }
   useEffect(() => {
     if (!session?.id) return;
@@ -255,11 +268,14 @@ export function Panel({
           controller.signal,
         );
         if (controller.signal.aborted) return;
-        if (version === observationVersion.current) setInvestigation(value);
+        if (!takeoverLock.current && version === observationVersion.current) {
+          setInvestigation(value);
+          setObservationError("");
+        }
         timer = setTimeout(poll, 1000);
       } catch (cause) {
         if (!controller.signal.aborted)
-          setError("调查观察中断，请手动刷新：" + errorText(cause));
+          setObservationError("调查观察中断，请手动刷新：" + errorText(cause));
         return;
       }
     };
@@ -268,17 +284,19 @@ export function Panel({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [key, rpc, capabilities]);
+  }, [key, rpc, capabilities, pollGeneration]);
+  const evidenceJobId = investigation?.lastJobId;
+  const evidenceRevision = investigation?.history?.at(-1);
   useEffect(() => {
     setEvidenceJob(null);
-    if (!session?.id || !investigation?.lastJobId) return;
+    if (!session?.id || !evidenceJobId) return;
     const controller = new AbortController();
     void ensureProtocol()
       .then(() =>
         rpc(
           "jobStatus",
           session.id,
-          { jobId: investigation.lastJobId },
+          { jobId: evidenceJobId },
           controller.signal,
         ),
       )
@@ -292,7 +310,40 @@ export function Panel({
         },
       );
     return () => controller.abort();
-  }, [key, rpc, investigation]);
+  }, [
+    key,
+    rpc,
+    investigation?.backendId,
+    evidenceJobId,
+    evidenceRevision?.status,
+    evidenceRevision?.observedAt,
+    pollGeneration,
+  ]);
+  async function takeover() {
+    if (takeoverLock.current) return;
+    takeoverLock.current = true;
+    setTakingOver(true);
+    setTakeoverError("");
+    ++observationVersion.current;
+    try {
+      // Revocation must not wait for a snapshot, refresh, or history request.
+      const value = await call("takeover");
+      if (!mounted.current) return;
+      ++observationVersion.current;
+      setInvestigation(value?.investigation ?? value);
+      setObservationError("");
+      restartPoll((n) => n + 1);
+      setNotice(
+        "已请求撤销调查并取消活动任务。接管不是暂停或终止目标进程，也不会回滚已发生的操作；请在 Visual Studio 核对。",
+      );
+    } catch (cause) {
+      if (mounted.current)
+        setTakeoverError("未能确认接管：" + errorText(cause));
+    } finally {
+      takeoverLock.current = false;
+      if (mounted.current) setTakingOver(false);
+    }
+  }
   const connected =
     !!status?.target &&
     ["connected", "running", "break", "design"].includes(status?.state);
@@ -491,25 +542,22 @@ export function Panel({
           </>
         )}
         <button
-          disabled={!!busy || !session}
-          onClick={() =>
-            void run("手动接管", async () => {
-              // Omit identity deliberately: the backend atomically revokes the current investigation.
-              ++observationVersion.current;
-              const value = await call("takeover");
-              if (!mounted.current) return;
-              setInvestigation(value?.investigation ?? value);
-              await refreshInvestigation();
-              await recoverJobs();
-              if (mounted.current)
-                setNotice(
-                  "已请求撤销调查并取消 active 任务，停止 AI 后续调试；这不是暂停或终止目标进程，已发生的操作不会回滚。请在 Visual Studio 核对后手动接管。",
-                );
-            })
-          }
+          disabled={takingOver || !session}
+          onClick={() => void takeover()}
         >
           停止 AI 后续调试 / 手动接管
         </button>
+        {takingOver && <p role="status">正在等待后台确认接管…</p>}
+        {takeoverError && (
+          <p role="alert" className="ad-warning">
+            {takeoverError}
+          </p>
+        )}
+        {observationError && (
+          <p role="alert" className="ad-warning">
+            {observationError}
+          </p>
+        )}
         <p className="ad-warning">
           接管会撤销调查授权并请求取消活动任务，不是暂停、终止进程或回滚。正在执行的操作可能已经产生副作用；请核对
           VS。

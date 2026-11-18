@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, readdir } from "node:fs/promises";
+import {
+  mkdtemp,
+  writeFile,
+  readdir,
+  mkdir,
+  rm,
+  unlink,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -283,6 +290,43 @@ test("legacy UUID and bounded listing recover own session and reject foreign rec
     { code: "FOREIGN_JOB" },
   );
   assert.equal((await x.service.listJobs(x.owner)).total, 1);
+});
+
+test("history skips unchanged evidence bodies while details remain complete", async (t) => {
+  const temp = await mkdtemp(path.join(tmpdir(), "debug-summary-"));
+  t.after(() => rm(temp, { recursive: true, force: true }));
+  const owner = { sessionId: "history", cwd: path.join(temp, "workspace") };
+  await mkdir(owner.cwd);
+  const directory = path.join(temp, "jobs"),
+    store = new JobStore(directory);
+  let reads = 0;
+  const read = store.readBody.bind(store);
+  store.readBody = (...args) => {
+    reads++;
+    return read(...args);
+  };
+  const raw = {
+    jobId: randomUUID(),
+    owner,
+    status: "succeeded",
+    steps: [],
+    results: ["x".repeat(500000)],
+  };
+  await store.save(raw);
+  assert.deepEqual((await store.list(owner))[0].results, []);
+  assert.equal(reads, 1);
+  const hot = await store.list(owner);
+  hot[0].owner.cwd = "changed";
+  assert.equal((await store.list(owner))[0].owner.cwd, owner.cwd);
+  assert.equal(reads, 1);
+  assert.deepEqual((await store.read(raw.jobId, owner)).results, raw.results);
+  assert.equal(reads, 2);
+  await store.save({ ...raw, status: "failed", results: ["changed"] });
+  assert.equal((await store.list(owner))[0].status, "failed");
+  assert.equal(reads, 3);
+  const scoped = createHash("sha256").update(owner.sessionId).digest("hex");
+  await unlink(path.join(directory, scoped, raw.jobId + ".json"));
+  assert.deepEqual(await store.list(owner), []);
 });
 
 test("bounded task and request caches refuse unsafe eviction or replay", async (t) => {

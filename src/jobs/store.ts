@@ -8,6 +8,7 @@ import {
   open,
   unlink,
 } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID, createHash } from "node:crypto";
 import { fail, type Owner } from "../protocol/types.js";
@@ -53,6 +54,31 @@ export async function projectedPath(value: string): Promise<string> {
 }
 export class JobStore {
   private canonical?: string;
+  private summaries = new Map<
+    string,
+    { revision: string; job: Job; bytes: number }
+  >();
+  private summaryBytes = 0;
+  private rememberSummary(file: string, revision: string, job: Job) {
+    const previous = this.summaries.get(file);
+    this.summaries.delete(file);
+    this.summaryBytes -= previous?.bytes ?? 0;
+    const summary = { ...job, steps: [], results: [] };
+    const bytes = Buffer.byteLength(JSON.stringify(summary));
+    if (bytes <= 512 * 1024) {
+      while (
+        this.summaries.size >= 512 ||
+        this.summaryBytes + bytes > 8 * 1024 * 1024
+      ) {
+        const first = this.summaries.keys().next().value!;
+        this.summaryBytes -= this.summaries.get(first)!.bytes;
+        this.summaries.delete(first);
+      }
+      this.summaries.set(file, { revision, job: summary, bytes });
+      this.summaryBytes += bytes;
+    }
+    return structuredClone(summary);
+  }
   constructor(private directory: string) {}
   private async dir(owner: Owner, recovery = false) {
     const dir = await projectedPath(this.directory),
@@ -108,7 +134,15 @@ export class JobStore {
   }
   async read(id: string, owner: Owner): Promise<Job> {
     this.id(id);
-    const scoped = await this.dir(owner, true);
+    return this.readRecord(id, owner, await this.dir(owner, true));
+  }
+  private async readRecord(
+    id: string,
+    owner: Owner,
+    scoped: string,
+    summaryOnly = false,
+  ): Promise<Job> {
+    this.id(id);
     let file = path.join(scoped, id + ".json");
     let stat;
     try {
@@ -122,7 +156,7 @@ export class JobStore {
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 20 * 1024 * 1024)
       fail("UNSAFE_STORE", "Invalid job file");
     const handle = await open(file, "r");
-    let text: string;
+    let text: string, revision: string;
     try {
       const opened = await handle.stat();
       if (
@@ -132,11 +166,31 @@ export class JobStore {
         opened.dev !== stat.dev
       )
         fail("UNSAFE_STORE", "Job file changed");
-      const buffer = Buffer.alloc(opened.size + 1);
-      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-      if (bytesRead > 20 * 1024 * 1024)
-        fail("STORE_LIMIT", "Job file too large");
-      text = buffer.subarray(0, bytesRead).toString("utf8");
+      revision = JSON.stringify([
+        opened.dev,
+        opened.ino,
+        opened.size,
+        opened.mtimeMs,
+        opened.ctimeMs,
+        opened.birthtimeMs,
+      ]);
+      const cached =
+        summaryOnly && opened.ino !== 0 ? this.summaries.get(file) : undefined;
+      if (cached && revision === cached.revision) {
+        if (cached.job.owner.sessionId !== owner.sessionId)
+          fail("FOREIGN_JOB", "Job belongs to another owner");
+        this.summaries.delete(file);
+        this.summaries.set(file, cached);
+        return structuredClone(cached.job);
+      }
+      text = await this.readBody(handle, opened.size);
+      const after = await handle.stat();
+      if (
+        after.size !== opened.size ||
+        after.mtimeMs !== opened.mtimeMs ||
+        after.ctimeMs !== opened.ctimeMs
+      )
+        fail("STORE_CHANGED", "Job file changed while reading");
     } finally {
       await handle.close();
     }
@@ -181,11 +235,27 @@ export class JobStore {
         message: "Host restarted; inspect VS state, never replay mutations",
       };
     }
-    return job;
+    return summaryOnly ? this.rememberSummary(file, revision, job) : job;
+  }
+  private async readBody(handle: FileHandle, size: number) {
+    const buffer = Buffer.alloc(size + 1);
+    let offset = 0;
+    while (offset < buffer.length) {
+      const { bytesRead } = await handle.read(
+        buffer,
+        offset,
+        buffer.length - offset,
+        offset,
+      );
+      if (!bytesRead) break;
+      offset += bytesRead;
+    }
+    if (offset > 20 * 1024 * 1024) fail("STORE_LIMIT", "Job file too large");
+    return buffer.subarray(0, offset).toString("utf8");
   }
   async list(owner: Owner): Promise<Job[]> {
     const scoped = await this.dir(owner, true);
-    const jobs: Job[] = [];
+    const jobs = new Map<string, Job>();
     let scanned = 0,
       bytes = 0;
     // Legacy flat records remain read-only recoverable; the same global scan limits apply.
@@ -204,9 +274,14 @@ export class JobStore {
           bytes += (await lstat(path.join(location, entry.name))).size;
           if (bytes > 64 * 1024 * 1024)
             fail("STORE_LIMIT", "Job listing exceeds scan byte budget");
-          const job = await this.read(entry.name.slice(0, -5), owner);
-          // Listing is metadata-only: fetch evidence explicitly via jobStatus.
-          jobs.push({ ...job, steps: [], results: [] });
+          // Legacy recovery remains scoped-first. Details bypass this cache.
+          const job = await this.readRecord(
+            entry.name.slice(0, -5),
+            owner,
+            scoped,
+            true,
+          );
+          if (!jobs.has(job.jobId)) jobs.set(job.jobId, job);
         } catch (e) {
           const code = (e as { code?: string }).code;
           if (
@@ -220,6 +295,6 @@ export class JobStore {
         }
       }
     }
-    return jobs;
+    return [...jobs.values()];
   }
 }

@@ -162,9 +162,24 @@ internal sealed class VisualStudioSession : IDisposable
         return new ComDispatch(dte);
     }
 
-    private string State(dynamic debugger)
+    internal object BindCandidate(object candidate, Target identity, Func<string> observeMode)
     {
-        string state = (int)debugger.CurrentMode switch { 1 => "design", 2 => "break", 3 => "running", _ => "disconnected" };
+        // Observe the candidate before releasing the current session or its ownership.
+        string state = observeMode();
+        Dispose();
+        dte = candidate;
+        target = identity;
+        TrackState(state);
+        return new { target, state };
+    }
+
+    private static string ReadMode(dynamic debugger) =>
+        (int)debugger.CurrentMode switch { 1 => "design", 2 => "break", 3 => "running", _ => "disconnected" };
+
+    private string State(dynamic debugger) => TrackState(ReadMode(debugger));
+
+    private string TrackState(string state)
+    {
         if (state == "break" && lastState != "break") stopId = Guid.NewGuid().ToString("N");
         if (state != "break") stopId = null;
         lastState = state;
@@ -198,9 +213,14 @@ internal sealed class VisualStudioSession : IDisposable
                     var identity = Describe(instance[..split], int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture), new ComDispatch(found));
                     if (!string.Equals(solution, identity.solutionPath, StringComparison.OrdinalIgnoreCase))
                         throw new BridgeError("TARGET_MISMATCH", "solutionPath does not match selected instance");
-                    Dispose(); dte = found; found = null; target = identity;
-                    using var scope = new ComScope();
-                    return new { target, state = State(scope.Hold(((dynamic)new ComDispatch(dte)).Debugger)) };
+                    object candidate = found;
+                    var connected = BindCandidate(candidate, identity, () =>
+                    {
+                        using var scope = new ComScope();
+                        return ReadMode(scope.Hold(((dynamic)new ComDispatch(candidate)).Debugger));
+                    });
+                    found = null;
+                    return connected;
                 }
                 finally { Native.Release(found); }
             case "status":
