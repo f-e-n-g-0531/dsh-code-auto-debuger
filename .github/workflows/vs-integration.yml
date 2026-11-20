@@ -90,6 +90,7 @@ jobs:
       - run: ./scripts/ci/check-environment.ps1 -RequireInteractive
       - run: npm ci
       - run: npm run build:bridge
+      - run: npm run build:profiler
       - run: npm run check
       - run: npm run test:host
       - run: npm run test:com

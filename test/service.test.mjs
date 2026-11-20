@@ -226,8 +226,8 @@ test("host registers tools and RPC with owner scope; dispose is registered", asy
     connection: {
       register: (owner, channel, fn) => {
         assert.equal(owner, ctx);
-        assert.equal(channel, "/auto-debug-rpc");
-        rpc = fn;
+        assert.match(channel, /^\/auto-debug(?:-profiler)?-rpc$/);
+        if (channel === "/auto-debug-rpc") rpc = fn;
       },
     },
     sessions: {

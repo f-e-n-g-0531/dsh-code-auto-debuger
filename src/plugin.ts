@@ -1,6 +1,7 @@
 import path from "node:path";
 import os from "node:os";
 import { realpath } from "node:fs/promises";
+import { ProfilerService } from "./core/profiler-service.js";
 import { DebugService } from "./core/debug-service.js";
 import { JobStore, projectedPath } from "./jobs/store.js";
 import { object, fail, type Owner } from "./protocol/types.js";
@@ -332,13 +333,64 @@ export function apply(ctx: any, config: Record<string, unknown> = {}) {
         return {
           ok: false,
           error: {
-            code: error.code ?? "DEBUG_ERROR",
-            message: error.message.slice(0, 2048),
+            code: typeof error?.code === "string" ? error.code : "DEBUG_ERROR",
+            message: (typeof error?.message === "string"
+              ? error.message
+              : "后台操作失败"
+            ).slice(0, 2048),
+            details: {},
           },
         };
       }
     },
   );
-  ctx.on("dispose", () => service.dispose());
+  const profiler = new ProfilerService(
+    undefined,
+    path.join(directory, "profiler-defaults.json"),
+  );
+  ctx.connection.register(
+    ctx,
+    "/auto-debug-profiler-rpc",
+    async (endpoint: string, payload: any, signal?: AbortSignal) => {
+      try {
+        const { sessionId, ...args } = object(payload, [
+          "sessionId",
+          "etlPath",
+          "pid",
+          "startTicks",
+          "durationSeconds",
+          "replaceTraceId",
+          "processFilter",
+          "duration",
+          "pdb",
+          "traceId",
+          "processIndex",
+          "pdbDir",
+          "startMs",
+          "endMs",
+        ]);
+        const who = await owner(sessionId);
+        return {
+          ok: true,
+          value: await profiler.invoke(endpoint, args, who, signal),
+        };
+      } catch (e) {
+        const error = e as Error & { code?: string };
+        return {
+          ok: false,
+          error: {
+            code:
+              typeof error?.code === "string" ? error.code : "PROFILER_ERROR",
+            message: (typeof error?.message === "string"
+              ? error.message
+              : "后台操作失败"
+            ).slice(0, 2048),
+            details: {},
+          },
+        };
+      }
+    },
+  );
+  ctx.on("dispose", () => Promise.all([service.dispose(), profiler.dispose()]));
   return service;
 }

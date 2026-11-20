@@ -49,6 +49,7 @@ for (const file of files) {
     "npm ci",
     "npm run check",
     "npm run build:bridge",
+    "npm run build:profiler",
     "npm run test:bridge",
     "npm run verify:package",
   ])

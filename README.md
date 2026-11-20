@@ -15,7 +15,7 @@
 将固定版本包安装到 **DSH 使用的插件依赖目录**，不要装进要调试的业务工程：
 
 ```powershell
-npm install --save-exact @feng0531/dsh-code-auto-debuger@0.1.8
+npm install --save-exact @feng0531/dsh-code-auto-debuger@0.2.0
 ```
 
 也可以安装 [GitHub Releases](https://github.com/f-e-n-g-0531/dsh-code-auto-debuger/releases) 中的 `.tgz` 包。安装后，在 DSH 的 Cordis 插件列表中加入以下条目；保留原有配置，不要覆盖整个文件：
@@ -41,6 +41,10 @@ npm install --save-exact @feng0531/dsh-code-auto-debuger@0.1.8
 5. Agent 每次通过 `perform` 提交一个原子操作，读取返回的状态、调用栈等证据后再决定下一步，最后给出定位依据、结论和未验证项。默认后台预算为 **64 次操作、10 分钟**；预算不是后台自主运行的模型。
 
 “自动调试”面板用于观察证据、接管或取消，不是手写计划的主入口。刷新或丢失响应后先查询原任务，不能重复提交结果未知的操作。插件自动管理桥接程序，不需要手动启动。完整流程和授权示例见 [AI 辅助调试](docs/AI-DEBUGGING.md)。
+
+## EXE 性能分析
+
+「性能分析」栏使用内置 Windows ETW 对运行中的 EXE 采样，也支持导入 ETL、使用本地 PDB、按 DXGI Present 间隔或手选时间范围查看 CPU 热点。无需安装 WPR/WPA 或 Visual Studio；内核录制需要管理员权限。见[使用和验证说明](<docs/PROFILER.md>)。
 
 ## 能力与限制
 

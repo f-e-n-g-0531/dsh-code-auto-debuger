@@ -1,6 +1,6 @@
 {
   "name": "@feng0531/dsh-code-auto-debuger",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "张良 / Zhang Liang：在 DSH 对话中调试 Visual Studio 项目。",
   "type": "module",
   "main": "./dist/plugin.js",
@@ -47,6 +47,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test test/*.test.mjs && node scripts/ci/verify-policy.mjs",
     "check": "npm run typecheck && npm run build && npm test",
+    "build:profiler": "node scripts/build-profiler.mjs",
     "build:bridge": "node scripts/build-bridge.mjs",
     "test:bridge": "node --test test/bridge-client.test.mjs test/bridge-regression.test.mjs",
     "test:host": "node --test test/host-smoke.test.mjs",

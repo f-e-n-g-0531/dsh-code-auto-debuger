@@ -9,6 +9,7 @@ import type { Action, Connection, Data } from "./protocol.js";
 import { createJobStore, sessionKey } from "./job-store.js";
 import type { JobStore } from "./job-store.js";
 import { styles } from "./styles.js";
+import { ProfilerPanel } from "./profiler.js";
 
 const uncertainJob = (value: Data | null) =>
   !value ||
@@ -40,6 +41,44 @@ export function apply(ctx: { connection: Connection; slots: any }) {
       />
     );
   }
+  function PerformancePage(props: any) {
+    const session = props.useSessions((state: any) =>
+      Object.values(state.byId).find(
+        (row: any) => (row.retainedBy.mainView ?? 0) > 0,
+      ),
+    ) as Session | undefined;
+    return (
+      <div
+        className="ad-profiler-scroll"
+        tabIndex={0}
+        role="region"
+        aria-label="性能分析内容"
+      >
+        <ProfilerPanel
+          key={JSON.stringify([session?.id, session?.cwd])}
+          connection={ctx.connection}
+          sessionId={session?.id}
+        />
+      </div>
+    );
+  }
+  ctx.slots.inject("main", () =>
+    ctx.slots.register(
+      { name: "main", key: "auto-debug-profiler" },
+      PerformancePage,
+    ),
+  );
+  ctx.slots.inject("sidebar.panellist", () =>
+    ctx.slots.register(
+      {
+        name: "sidebar.panellist",
+        id: "auto-debug-profiler",
+        label: () => "性能分析",
+        order: 69,
+      },
+      () => <span aria-hidden="true">◫</span>,
+    ),
+  );
   function Icon() {
     return <span aria-hidden="true">◉</span>;
   }
@@ -118,14 +157,14 @@ export function Panel({
   };
   const protocol = useRef<Data | null>(null);
   const compatible = (value: Data | null | undefined) =>
-    value?.version === "0.1.8" &&
+    value?.version === "0.2.0" &&
     value?.protocol === 1 &&
     value?.features?.dynamicDebug === true;
   const ensureProtocol = async () => {
     if (compatible(protocol.current)) return protocol.current;
     if (protocol.current) {
       throw new Error(
-        "前后端协议不匹配（需要 version 0.1.8 / protocol 1 / dynamicDebug），已禁止连接；请更新并重新读取能力",
+        "前后端协议不匹配（需要 version 0.2.0 / protocol 1 / dynamicDebug），已禁止连接；请更新并重新读取能力",
       );
     }
     return handshake();
@@ -146,7 +185,7 @@ export function Panel({
         setStatus(null);
       }
       throw new Error(
-        "前后端协议不匹配（需要 version 0.1.8 / protocol 1 / dynamicDebug），已禁止连接；请更新并重新读取能力",
+        "前后端协议不匹配（需要 version 0.2.0 / protocol 1 / dynamicDebug），已禁止连接；请更新并重新读取能力",
       );
     }
     protocol.current = value;

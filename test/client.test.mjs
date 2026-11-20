@@ -78,10 +78,16 @@ test('built ModuleLoader artifact registers main and sidebar slots without makin
       register(meta, component) { registrations.push({ meta, component }); return () => {}; },
     },
   });
-  assert.deepEqual(injections, ['main', 'sidebar.panellist']);
-  assert.equal(registrations[0].meta.key, 'auto-debug');
-  assert.equal(registrations[1].meta.id, 'auto-debug');
-  assert.equal(registrations[1].meta.label(), '自动调试');
+  assert.deepEqual(injections, ['main', 'sidebar.panellist', 'main', 'sidebar.panellist']);
+  assert.equal(registrations.find(x => x.meta.key === 'auto-debug').meta.name, 'main');
+  assert.equal(registrations.find(x => x.meta.id === 'auto-debug').meta.label(), '自动调试');
+  const performance = registrations.find(x => x.meta.key === 'auto-debug-profiler');
+  assert.equal(performance.meta.name, 'main');
+  const scroll = performance.component({ useSessions: select => select({ byId: {} }) });
+  assert.equal(scroll.props.className, 'ad-profiler-scroll');
+  assert.equal(scroll.props.tabIndex, 0);
+  assert.equal(scroll.props.role, 'region');
+  assert.equal(registrations.find(x => x.meta.id === 'auto-debug-profiler').meta.label(), '性能分析');
   assert(registrations.every(row => typeof row.component === 'function'));
   assert.deepEqual([...new Set(dependencies)], ['react']);
 });

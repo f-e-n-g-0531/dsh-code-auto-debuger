@@ -10,6 +10,7 @@ Only version-tag pushes matching v\* and workflow_dispatch are configured. **No 
 ./scripts/ci/check-environment.ps1
 npm ci
 npm run build:bridge
+npm run build:profiler
 npm run check
 npm run test:host
 npm run test:com

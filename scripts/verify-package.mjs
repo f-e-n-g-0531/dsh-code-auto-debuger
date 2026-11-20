@@ -75,6 +75,34 @@ export async function verifyPackage(root = ".") {
   ])
     if (!(await readFile(path.join(root, file))).length)
       throw Error("Empty required file: " + file);
+  const profilerDir = path.join(root, "dist/profiler/win-x64");
+  const profiler = await json("dist/profiler-info.json");
+  const profilerFiles = await inventory(profilerDir);
+  if (
+    profiler.schemaVersion !== 1 ||
+    profiler.sourceHash !== info.sourceHash ||
+    !isDeepStrictEqual(profilerFiles, profiler.files) ||
+    !profilerFiles["dsh-profiler.exe"]?.size ||
+    !profilerFiles["Microsoft.Diagnostics.Tracing.TraceEvent.dll"]?.size ||
+    !profilerFiles["amd64/KernelTraceControl.dll"]?.size ||
+    !profilerFiles["amd64/msdia140.dll"]?.size
+  )
+    throw Error("Profiler publish inventory mismatch");
+  const profilerRuntime = await runtimeIdentity(profilerDir, "dsh-profiler");
+  if (!isDeepStrictEqual(profiler.runtime, profilerRuntime))
+    throw Error("Profiler runtime identity mismatch");
+  const profilerLicenses = {
+    ...(await runtimeLicenseFiles(profilerRuntime, root)),
+    "TraceEvent-LICENSE.txt": await readFile(
+      path.join(root, "profiler/TraceEvent-LICENSE.txt"),
+    ),
+  };
+  for (const [file, bytes] of Object.entries(profilerLicenses))
+    if (
+      !bytes.length ||
+      !(await readFile(path.join(profilerDir, file))).equals(bytes)
+    )
+      throw Error("Profiler license mismatch: " + file);
   async function scan(dir) {
     for (const e of await readdir(dir, { withFileTypes: true })) {
       const f = path.join(dir, e.name),

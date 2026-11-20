@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { apply } from "../dist/plugin.js";
@@ -42,7 +42,7 @@ async function fixture(t, tools) {
   await mkdir(workspace);
   const definitions = [],
     disposers = [];
-  let rpc;
+  let rpc, profilerRpc;
   const ctx = {
     tools: tools ?? {
       register(definition) {
@@ -52,8 +52,9 @@ async function fixture(t, tools) {
     connection: {
       register(owner, channel, handler) {
         assert.equal(owner, ctx);
-        assert.equal(channel, "/auto-debug-rpc");
-        rpc = handler;
+        assert.match(channel, /^\/auto-debug(?:-profiler)?-rpc$/);
+        if (channel === "/auto-debug-rpc") rpc = handler;
+        else profilerRpc = handler;
       },
     },
     sessions: {
@@ -73,12 +74,18 @@ async function fixture(t, tools) {
       disposers.push(handler);
     },
   };
-  const service = apply(ctx, { storageDirectory: path.join(root, "jobs") });
+  const activate = () => apply(ctx, { storageDirectory: path.join(root, "jobs") });
+  const service = activate();
+  const reloadProfiler = async () => {
+    for (const dispose of disposers.splice(0)) await dispose();
+    activate();
+    return profilerRpc;
+  };
   t.after(async () => {
     for (const dispose of disposers) await dispose();
     await rm(root, { recursive: true, force: true });
   });
-  return { ctx, service, definitions, rpc, workspace };
+  return { ctx, service, definitions, rpc, profilerRpc, workspace, reloadProfiler };
 }
 
 test("host RPC contract matches browser flat payload and enforces session ownership", async (t) => {
@@ -114,6 +121,59 @@ test("host RPC contract matches browser flat payload and enforces session owners
     (await x.rpc("capabilities", { sessionId: "live" }, abort.signal)).ok,
     false,
   );
+});
+
+test("performance RPC scopes imported traces to their owning session", { skip: process.platform !== "win32" }, async (t) => {
+  const x = await fixture(t);
+  const own = { sessionId: "live" };
+  await writeFile(path.join(x.workspace, "sample.etl"), "test fixture; not parsed");
+  assert.equal((await x.profilerRpc("import", { ...own, etlPath: "../escape.etl" })).ok, false);
+  const imported = await x.profilerRpc("import", { ...own, etlPath: "sample.etl" });
+  assert.equal(imported.ok, true);
+  const { traceId } = imported.value;
+  assert.equal((await x.profilerRpc("current", own)).value.traceId, traceId);
+  assert.deepEqual((await x.profilerRpc("current", { sessionId: "persisted" })).value, {});
+  assert.equal((await x.profilerRpc("close", { sessionId: "persisted", traceId })).error.code, "PROFILER_TRACE");
+  assert.equal((await x.profilerRpc("import", { ...own, etlPath: "sample.etl" })).error.code, "PROFILER_TRACE");
+  for (const [replaceTraceId, code] of [["stale", "PROFILER_TRACE"], [traceId, "PROFILER_INPUT"]]) {
+    assert.equal((await x.profilerRpc("record", { ...own, replaceTraceId })).error.code, code);
+    assert.equal((await x.profilerRpc("current", own)).value.traceId, traceId);
+  }
+  assert.equal((await x.profilerRpc("close", { ...own, traceId })).ok, true);
+  assert.equal((await x.profilerRpc("import", { ...own, etlPath: "sample.etl" })).ok, true, "closing a trace must not remove the original");
+});
+
+test("profiler imports survive disposal and restore only to their owner", { skip: process.platform !== "win32" }, async t => {
+  const x = await fixture(t);
+  await writeFile(path.join(x.workspace, "sample.etl"), "fixture");
+  const own = {sessionId:"live"};
+  const r = await x.profilerRpc("import", {...own, etlPath:"sample.etl"});
+  assert.equal(r.ok,true);
+  const next = await x.reloadProfiler();
+  assert.equal((await next("current",own)).value.traceId, r.value.traceId);
+  assert.deepEqual((await next("current",{sessionId:"persisted"})).value, {});
+  assert.equal((await next("close",{...own,traceId:r.value.traceId})).ok,true);
+  const afterClose = await x.reloadProfiler();
+  assert.deepEqual((await afterClose("current",own)).value, {});
+});
+
+test("profiler defaults are persisted and shared across sessions", { skip: process.platform !== "win32" }, async t => {
+  const x = await fixture(t);
+  const saved = { processFilter: "soul", duration: 15, pdb: "D:/Symbols/中文字" };
+  assert.equal((await x.profilerRpc("saveDefaults", {sessionId:"live", ...saved})).ok, true);
+  assert.deepEqual((await x.profilerRpc("getDefaults", {sessionId:"persisted"})).value, saved);
+  assert.equal((await x.profilerRpc("saveDefaults", {sessionId:"live", ...saved, duration:16})).ok, false);
+  assert.deepEqual((await x.profilerRpc("getDefaults", {sessionId:"live"})).value, saved);
+  const { readFile } = await import("node:fs/promises");
+  assert.deepEqual(JSON.parse(await readFile(path.join(x.workspace, "..", "jobs", "profiler-defaults.json"), "utf8")), saved);
+});
+
+test("RPC failures meet the DSH wire contract and preserve error details", async (t) => {
+  const x = await fixture(t);
+  for (const [rpc, action] of [[x.rpc, "capabilities"], [x.profilerRpc, "processes"]]) {
+    const reply = JSON.parse(JSON.stringify(await rpc(action, { sessionId: "missing" })));
+    assert.deepEqual(reply, {ok:false,error:{ code:"INVALID_OWNER", message:"Session unavailable", details:{} }});
+  }
 });
 
 test("host tool calls derive owner from execution context, never model arguments", async (t) => {

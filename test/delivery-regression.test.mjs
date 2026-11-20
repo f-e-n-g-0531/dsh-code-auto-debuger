@@ -36,6 +36,8 @@ async function fixture(t) {
     "scripts/build-bridge.mjs",
     "src/plugin.ts",
     "bridge/Program.cs",
+    "profiler/AnalysisEntry.cs",
+    "profiler/TraceEvent-LICENSE.txt",
     "docs/guide.md",
     "locale/en.yml",
     "dist/client.js",
@@ -97,6 +99,13 @@ async function fixture(t) {
     files: await inventory(path.join(root, publish)),
   };
   await json(root, "dist/bridge-info.json", metadata);
+  const profiler = "dist/profiler/win-x64";
+  for (const file of ["dsh-profiler.exe", "Microsoft.Diagnostics.Tracing.TraceEvent.dll", "amd64/KernelTraceControl.dll", "amd64/msdia140.dll"])
+    await put(root, profiler + "/" + file, "TEST ONLY " + file);
+  await put(root, profiler + "/dsh-profiler.deps.json", await readFile(path.join(root, publish, "dsh-vs-bridge.deps.json")));
+  for (const [file, bytes] of Object.entries(licenses)) await put(root, profiler + "/" + file, bytes);
+  await put(root, profiler + "/TraceEvent-LICENSE.txt", await readFile(path.join(root, "profiler/TraceEvent-LICENSE.txt")));
+  await json(root, "dist/profiler-info.json", { schemaVersion: 1, sourceHash: source, runtime, files: await inventory(path.join(root, profiler)) });
   return { root, publish, metadata };
 }
 test("build-* scripts and unknown build-* directories are hashed; only exact generated directories ignored", async (t) => {

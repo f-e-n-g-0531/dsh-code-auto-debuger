@@ -5,7 +5,7 @@ import os from "node:os";
 export const sha256 = (bytes) =>
   createHash("sha256").update(bytes).digest("hex");
 // Exact generated directories only: never exclude source files named build-*.
-const generated = new Set(["bridge/bin", "bridge/obj"]);
+const generated = new Set(["bridge/bin", "bridge/obj", "profiler/bin", "profiler/obj"]);
 export async function inventory(root) {
   const result = {};
   async function walk(relative = "") {
@@ -53,12 +53,12 @@ export async function sourceHash(root = ".") {
     "cordis.patch.yml",
   ])
     await add(f);
-  for (const d of ["src", "bridge", "scripts"]) await walk(d);
+  for (const d of ["src", "bridge", "profiler", "scripts"]) await walk(d);
   return hash.digest("hex");
 }
-export async function runtimeIdentity(publish) {
+export async function runtimeIdentity(publish, assembly = "dsh-vs-bridge") {
   const deps = JSON.parse(
-    await readFile(path.join(publish, "dsh-vs-bridge.deps.json"), "utf8"),
+    await readFile(path.join(publish, assembly + ".deps.json"), "utf8"),
   );
   const keys = Object.keys(deps.libraries ?? {}).filter((k) =>
     k.startsWith("runtimepack.Microsoft.NETCore.App.Runtime.win-x64/"),

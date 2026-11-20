@@ -23,7 +23,7 @@ async function host(t) {
   apply(
     {
       tools: { register: (d) => defs.push(d) },
-      connection: { register: (ctx, channel, handler) => (rpc = handler) },
+      connection: { register: (_ctx, channel, handler) => { if (channel === "/auto-debug-rpc") rpc = handler; } },
       sessions: {
         get: (id) => (id === "owner" ? { header: { cwd } } : undefined),
       },

@@ -23,7 +23,7 @@ test("host recovery remains available when current cwd no longer exists and does
   const defs = [];
   const ctx = {
     tools: { register: (x) => defs.push(x) },
-    connection: { register: (_ctx, _channel, handler) => (rpc = handler) },
+    connection: { register: (_ctx, channel, handler) => { if (channel === "/auto-debug-rpc") rpc = handler; } },
     sessions: { get: () => ({ header: { cwd: missing } }) },
     sessionPersistence: { stat: async () => undefined },
     on: (_event, handler) => (dispose = handler),

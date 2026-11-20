@@ -1,4 +1,22 @@
-export const styles = `.ad-root {
+export const styles = `.ad-profiler-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+}
+.ad-profiler-scroll > .ad-root { overflow-wrap: anywhere; }
+.ad-profiler-summary { border: 1px solid #536176; border-radius: 8px; padding: 12px 16px; }
+.ad-profiler-summary h4 { margin: 0; }
+.ad-profiler-summary ul { padding-left: 20px; margin-block: 8px 0; }
+.ad-profiler-summary li { margin-block: 4px; }
+.ad-profiler-summary strong { display: inline-block; margin-inline-start: 12px; white-space: nowrap; }
+.ad-profiler-table-wrap { overflow-x: auto; margin-bottom: 8px; }
+.ad-profiler-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.ad-profiler-table th, .ad-profiler-table td { padding: 5px 8px; border-bottom: 1px solid #53617666; text-align: right; white-space: nowrap; }
+.ad-profiler-table th:first-child, .ad-profiler-table td:first-child { text-align: left; white-space: normal; width: 100%; }
+.ad-profiler-stacks { margin-top: 12px; }
+.ad-profiler-stacks details { margin-block: 8px; }
+.ad-root {
   max-width: 1320px;
   margin: auto;
   padding: 24px;
